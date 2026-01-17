@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "target": "ESNext",
+    "module": "ESNext"
+  },
+  "include": [
+    "src/**/*",
+    "src/**/*.vue" 
+  ],
+  "exclude": ["node_modules", "dist"]
+}

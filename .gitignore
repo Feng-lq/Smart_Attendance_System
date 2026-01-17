@@ -1,0 +1,39 @@
+# ==================
+# 1. Python 后端忽略项
+# ==================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+fyp_env/
+.env              
+.pytest_cache/
+
+# ==================
+# 2. Vue 前端忽略项
+# ==================
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+
+# ==================
+# 3. 数据库备份文件 (建议加上)
+# ==================
+# 如果你以后手动导出 SQL 备份，防止误上传
+*.sql
+*.dump
+
+# ==================
+# 4. 业务数据 (可选)
+# ==================
+# 如果不想上传之前测试生成的历史图片，取消下面几行的注释
+backend/static/history/*
+backend/static/uploads/*
+backend/static/group_photo/*
+!backend/static/history/.gitkeep
