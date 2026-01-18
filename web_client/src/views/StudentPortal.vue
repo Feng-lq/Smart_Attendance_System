@@ -1,8 +1,15 @@
 <script setup>
-import { ref } from 'vue'
-import { Search, User, Calendar, PieChart } from '@element-plus/icons-vue'
-import { queryStudentAttendance } from '@/api/student_portal'
-import { ElMessage } from 'element-plus'
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router' // 引入 useRouter
+import { Search, User, Calendar, SwitchButton } from '@element-plus/icons-vue' // 引入退出图标
+// 引入 API 和 Store
+import { queryStudentAttendance } from '@/api/students' 
+import { useUserStore } from '@/stores/userStore' // 引入 Store
+import { ElMessage, ElMessageBox } from 'element-plus'
+
+const route = useRoute()
+const router = useRouter()
+const userStore = useUserStore() // 获取 store 实例
 
 const searchId = ref('')
 const isLoading = ref(false)
@@ -10,7 +17,12 @@ const studentData = ref(null)
 
 const baseURL = 'http://127.0.0.1:8000'
 
-// 图片路径处理
+const colors = [
+  { color: '#f56c6c', percentage: 60 },
+  { color: '#e6a23c', percentage: 80 },
+  { color: '#5cb87a', percentage: 100 },
+]
+
 const getImageUrl = (path) => {
   if (!path) return ''
   if (path.startsWith('http')) return path
@@ -18,7 +30,6 @@ const getImageUrl = (path) => {
   return baseURL + cleanPath
 }
 
-// 执行查询
 const handleSearch = async () => {
   if (!searchId.value) {
     ElMessage.warning('请输入学号')
@@ -26,30 +37,64 @@ const handleSearch = async () => {
   }
   
   isLoading.value = true
-  studentData.value = null // 清空旧数据
+  studentData.value = null 
   
   try {
     const res = await queryStudentAttendance(searchId.value)
-    studentData.value = res // 直接赋值，因为我们后端返回的就是标准 JSON
-    ElMessage.success('查询成功')
+    studentData.value = res 
   } catch (error) {
-    ElMessage.error('未找到该学号或服务器错误')
+    const msg = error.response?.data?.detail || '未找到该学号或服务器错误'
+    ElMessage.error(msg)
   } finally {
     isLoading.value = false
   }
 }
 
-// 状态对应的颜色
 const getStatusType = (status) => {
   return status === 'present' ? 'success' : 'danger'
 }
 const getStatusText = (status) => {
   return status === 'present' ? '✅ 出勤' : '❌ 缺勤'
 }
+
+// 🔥 新增：退出登录逻辑
+const handleLogout = () => {
+  ElMessageBox.confirm(
+    '确定要退出查询并返回登录页吗？',
+    '提示',
+    {
+      confirmButtonText: '确定退出',
+      cancelButtonText: '取消',
+      type: 'warning',
+    }
+  ).then(() => {
+    // 1. 清理 Store 中的 Token 和用户信息
+    userStore.logoutAction()
+    // 2. 强制跳转回首页 (登录页)
+    router.push('/')
+    ElMessage.success('已安全退出')
+  }).catch(() => {
+    // 取消操作，不做任何事
+  })
+}
+
+onMounted(() => {
+  if (route.query.id) {
+    searchId.value = route.query.id
+    handleSearch()
+  }
+})
 </script>
 
 <template>
   <div class="portal-container">
+
+    <div class="top-bar">
+      <el-button type="danger" plain :icon="SwitchButton" @click="handleLogout">
+        退出 / 返回登录
+      </el-button>
+    </div>
+    
     <div class="search-box">
       <h1 class="title">🎓 学生考勤查询门户</h1>
       <p class="subtitle">输入学号，一键查看你的出勤记录</p>
@@ -151,6 +196,7 @@ const getStatusText = (status) => {
 </template>
 
 <style scoped>
+/* 保持样式不变 */
 .portal-container {
   max-width: 800px;
   margin: 40px auto;

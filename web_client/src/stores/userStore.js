@@ -46,11 +46,16 @@ export const useUserStore = defineStore('user', () => {
 
       console.log("✅ 登录成功，准备跳转...")
 
-      // 5. 跳转
+      // 🔥 5. 核心修改：根据角色跳转不同页面
       if (role.value === 'admin') {
-        router.push('/dashboard')
+        // 教师跳转到仪表盘的班级管理页 (更常用)
+        router.push('/dashboard/class')
       } else {
-        router.push('/student/my-attendance')
+        // 学生跳转到门户页，并携带学号参数，实现自动查询！
+        router.push({ 
+          path: '/student', 
+          query: { id: loginForm.username } 
+        })
       }
       
       return true

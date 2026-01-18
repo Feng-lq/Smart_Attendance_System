@@ -2,9 +2,10 @@
 import { User, Lock } from '@element-plus/icons-vue'
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-// 引入我们刚写好的 Store
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 
+const router = useRouter()
 const userStore = useUserStore()
 const isLoading = ref(false)
 
