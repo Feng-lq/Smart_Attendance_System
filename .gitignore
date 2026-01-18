@@ -34,6 +34,6 @@ yarn-error.log*
 # ==================
 # 如果不想上传之前测试生成的历史图片，取消下面几行的注释
 backend/static/history/*
-backend/static/uploads/*
+backend/static/avatars/*
 backend/static/group_photo/*
 !backend/static/history/.gitkeep
