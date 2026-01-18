@@ -1,70 +1,72 @@
 <script setup>
 import { User, Lock } from '@element-plus/icons-vue'
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { login } from '@/api/auth'
+// 引入我们刚写好的 Store
+import { useUserStore } from '@/stores/userStore'
 
-const router = useRouter()
+const userStore = useUserStore()
+const isLoading = ref(false)
 
-// 表单数据
+// 表单数据 (增加 role 字段)
 const form = reactive({
   username: '',
-  password: ''
+  password: '',
+  role: 'admin' // 默认选中教师
 })
-
-const isLoading = ref(false)
 
 // 登录逻辑
 const handleLogin = async () => {
+  // 简单非空校验
   if (!form.username || !form.password) {
-    ElMessage.warning('请输入账号和密码')
+    ElMessage.warning('请输入完整信息')
     return
   }
 
   isLoading.value = true
 
   try {
-    // 1. 准备表单数据 (FastAPI 要求格式)
-    const formData = new URLSearchParams()
-    formData.append('username', form.username)
-    formData.append('password', form.password)
+    // 🔥 核心变化：直接调用 Store 的 Action
+    // Store 内部负责：调用API -> 存Token -> 存Role -> 路由跳转
+    const success = await userStore.loginAction(form)
 
-    // 2. 调用封装接口 (路径会自动变为 /api/token) 👈
-    const response = await login(formData)
-
-    // 3. 登录成功处理 (axios 拦截器如果已处理返回 response.data, 此处可简写)
-    const token = response.access_token || response.data.access_token
-    
-    // 存储 Token
-    localStorage.setItem('token', token)
-    
-    ElMessage.success('登录成功！')
-    
-    // 跳转到主页
-    router.push('/dashboard/student') 
-    
+    if (success) {
+      ElMessage.success('登录成功！')
+      // 注意：跳转逻辑已移至 store/userStore.js 中处理
+      // 老师 -> /dashboard
+      // 学生 -> /student/my-attendance
+    } else {
+      ElMessage.error('登录失败：请检查账号、密码或角色选择')
+    }
   } catch (error) {
     console.error(error)
-    // 这里的错误提示会涵盖 401 (密码错误) 和 404 (路径错误)
-    ElMessage.error(error.response?.data?.detail || '登录失败：请检查网络或账号密码')
+    ElMessage.error('系统错误，请稍后再试')
   } finally {
     isLoading.value = false
   }
 }
+
+// 计算属性：动态显示输入框提示
+const usernamePlaceholder = computed(() => {
+  return form.role === 'admin' ? '请输入管理员账号' : '请输入学号'
+})
 </script>
 
 <template>
   <div class="login-container">
     <div class="login-card">
       <h2 class="title">智慧考勤系统</h2>
-      <p class="subtitle">管理员登录</p>
+      
+      <el-tabs v-model="form.role" stretch class="role-tabs">
+        <el-tab-pane label="我是教师" name="admin"></el-tab-pane>
+        <el-tab-pane label="我是学生" name="student"></el-tab-pane>
+      </el-tabs>
 
-      <el-form :model="form" size="large">
+      <el-form :model="form" size="large" @submit.prevent>
         <el-form-item>
           <el-input 
             v-model="form.username" 
-            placeholder="用户名" 
+            :placeholder="usernamePlaceholder" 
             :prefix-icon="User"
           />
         </el-form-item>
@@ -86,15 +88,19 @@ const handleLogin = async () => {
           :loading="isLoading"
           @click="handleLogin"
         >
-          立即登录
+          {{ isLoading ? '登录中...' : '立即登录' }}
         </el-button>
+        
+        <div class="tips" v-if="form.role === 'student'">
+          <small>📢 提示：学生初始密码默认为 123456</small>
+        </div>
       </el-form>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 居中背景 */
+/* 保持你原本漂亮的样式 */
 .login-container {
   height: 100vh;
   display: flex;
@@ -103,30 +109,37 @@ const handleLogin = async () => {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
-/* 登录卡片 */
 .login-card {
   width: 400px;
   padding: 40px;
   background: white;
   border-radius: 15px;
   box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-  text-align: center;
+  /* text-align: center; */ /* 去掉这个，让 tabs 更好看 */
 }
 
 .title {
-  margin: 0;
+  text-align: center;
+  margin: 0 0 20px 0;
   color: #333;
   font-size: 24px;
 }
 
-.subtitle {
-  color: #666;
-  margin-bottom: 30px;
+/* 新增：标签页样式微调 */
+.role-tabs {
+  margin-bottom: 20px;
 }
 
 .login-btn {
   width: 100%;
   margin-top: 10px;
   font-weight: bold;
+  padding: 20px 0; /* 按钮稍微高一点更好看 */
+}
+
+.tips {
+  margin-top: 15px;
+  text-align: center;
+  color: #909399;
 }
 </style>

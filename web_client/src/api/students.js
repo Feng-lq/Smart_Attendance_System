@@ -22,3 +22,8 @@ export function createStudent(formData) {
 export function deleteStudent(id) {
   return request.delete(`/students/${id}`)
 }
+
+// 根据学号查询考勤详情
+export function queryStudentAttendance(studentId) {
+  return request.get(`/student/portal/${studentId}`)
+}

@@ -9,28 +9,41 @@ const selectedClassId = ref(null)
 const uploadFile = ref(null)
 const previewUrl = ref('')
 const isProcessing = ref(false)
-const isSending = ref(false) // 邮件发送状态
+const isSending = ref(false) 
 const result = ref(null) 
 
-// 1. 获取班级列表 (使用封装函数)
+// 1. 定义后端基准地址
+const baseURL = 'http://127.0.0.1:8000'
+
+// 2. 图片路径拼接函数
+const getImageUrl = (path) => {
+  if (!path) return ''
+  if (path.startsWith('http')) return path
+  const cleanPath = path.startsWith('/') ? path : '/' + path
+  return baseURL + cleanPath
+}
+
+// 3. 获取班级列表
 const fetchClasses = async () => {
   try {
     const res = await getClasses()
-    classes.value = res // axios 响应对象的数据在 .data 中
+    // 🔥 防错处理：有些 axios 封装会返回 res，有些返回 res.data
+    // 如果 res 是数组，直接用；如果是对象且有 data 属性，用 res.data
+    classes.value = Array.isArray(res) ? res : (res.data || [])
   } catch (error) {
     console.error(error)
-    ElMessage.error('无法获取班级列表')
+    ElMessage.error('无法获取班级列表，请检查后端是否启动')
   }
 }
 
-// 2. 选择照片
+// 选择照片
 const handleFileChange = (file) => {
   uploadFile.value = file.raw
   previewUrl.value = URL.createObjectURL(file.raw)
   result.value = null 
 }
 
-// 3. 提交识别 (使用封装函数)
+// 4. 提交识别
 const handleAnalyze = async () => {
   if (!selectedClassId.value || !uploadFile.value) {
     ElMessage.warning('请先选择班级并上传照片')
@@ -43,23 +56,27 @@ const handleAnalyze = async () => {
     formData.append('class_id', selectedClassId.value)
     formData.append('file', uploadFile.value)
 
-    // 调用封装后的 API 👈
     const response = await analyzeClassPhoto(formData)
-    result.value = response
     
+    // 🔥 调试日志：看看后端到底返了什么
+    console.log("后端返回的识别结果:", response)
+    
+    result.value = response
     ElMessage.success('识别并标注完成！')
   } catch (error) {
-    const detail = error.response?.data?.detail || '服务器连接超时，请检查后端'
+    console.error(error)
+    const detail = error.response?.data?.detail || '服务器连接超时'
     ElMessage.error('识别失败: ' + detail)
   } finally {
     isProcessing.value = false
   }
 }
 
-// 4. 通知缺勤 (逻辑保持，后续可对接真实接口)
+// 通知缺勤
 const notifyAbsentees = () => {
   if (!result.value || result.value.absent_count === 0) return
 
+  // 🔥 字段修正：result.id
   ElMessageBox.confirm(
     `确定要向这 ${result.value.absent_count} 名同学发送缺勤预警邮件吗？`,
     '批量发送通知',
@@ -75,7 +92,8 @@ const notifyAbsentees = () => {
       isSending.value = false
       ElNotification({
         title: '通知已下发',
-        message: `考勤批次 ${result.value.session_id} 的提醒邮件已发送。`,
+        // 🔥 字段修正：result.id
+        message: `考勤批次 ${result.value.id} 的提醒邮件已发送。`,
         type: 'success'
       })
     }, 2000)
@@ -120,21 +138,24 @@ onMounted(fetchClasses)
         accept="image/*"
     >
         <img 
-        v-if="result && result.annotated_image_base64" 
-        :src="'data:image/jpeg;base64,' + result.annotated_image_base64" 
+        v-if="result && result.result_img" 
+        :src="getImageUrl(result.result_img)" 
         class="preview-img result-img" 
         />
+        
         <img 
         v-else-if="previewUrl" 
         :src="previewUrl" 
         class="preview-img" 
         />
+        
         <div v-else class="placeholder">
         <el-icon class="icon"><upload-filled /></el-icon>
         <div class="text">将课堂合照拖到此处，或 <em>点击上传</em></div>
         </div>
     </el-upload>
-    <div v-if="result && result.annotated_image_base64" class="img-tips">
+    
+    <div v-if="result && result.result_img" class="img-tips">
         绿色框：识别成功 | 红色框：未匹配到名单
     </div>
     </div>
@@ -152,7 +173,7 @@ onMounted(fetchClasses)
 
       <div v-if="result" class="result-section">
         <div class="session-info">
-          <el-tag type="info" effect="plain">考勤批次: {{ result.session_id }}</el-tag>
+          <el-tag type="info" effect="plain">考勤批次: {{ result.id }}</el-tag>
         </div>
 
         <el-row :gutter="20">
@@ -204,7 +225,7 @@ onMounted(fetchClasses)
         
         <div class="stats-footer">
           <el-divider />
-          <span>算法统计：本次合照识别到 {{ result.total_faces_detected }} 张面孔，该班级应到 {{ result.class_total }} 人。</span>
+          <span>算法统计：本次合照识别到 {{ result.total_faces_detected }} 张面孔，该班级应到 {{ result.total_count }} 人。</span>
         </div>
       </div>
     </el-card>
@@ -212,13 +233,14 @@ onMounted(fetchClasses)
 </template>
 
 <style scoped>
+/* 保持原样 */
 .container { max-width: 900px; margin: 20px auto; }
 .header h2 { margin: 0; color: #303133; }
 .subtitle { color: #909399; font-size: 14px; margin: 5px 0 0 0; }
 .setup-grid { margin-bottom: 25px; padding: 20px; background: #f8f9fa; border-radius: 8px; }
 .label { font-weight: bold; margin-right: 15px; color: #606266; }
 .upload-section { margin-bottom: 25px; }
-.preview-img { max-width: 100%; max-height: 350px; border-radius: 4px; object-fit: contain; }
+.preview-img { max-width: 100%; max-height: 450px; border-radius: 4px; object-fit: contain; transition: all 0.3s ease; }
 .placeholder { padding: 60px 0; color: #C0C4CC; }
 .icon { font-size: 48px; margin-bottom: 10px; }
 .action-btn { width: 100%; height: 50px; font-size: 16px; font-weight: bold; }
@@ -234,9 +256,9 @@ onMounted(fetchClasses)
 .error { color: #F56C6C; }
 
 .stats-footer { margin-top: 30px; text-align: center; color: #909399; font-size: 13px; }
-/* 增加以下样式 */
+
 .result-img {
-  border: 2px solid #67C23A; /* 识别后给一个绿色外边框增强氛围感 */
+  border: 2px solid #67C23A; 
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
@@ -249,14 +271,4 @@ onMounted(fetchClasses)
   border-radius: 4px;
   display: inline-block;
 }
-
-/* 优化预览图样式，确保它在大屏下不会模糊 */
-.preview-img {
-  max-width: 100%;
-  max-height: 450px; /* 适当增加高度限制，方便看清标注 */
-  border-radius: 4px;
-  object-fit: contain;
-  transition: all 0.3s ease;
-}
-
 </style>

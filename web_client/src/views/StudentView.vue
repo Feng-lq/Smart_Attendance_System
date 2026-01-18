@@ -19,6 +19,20 @@ const form = reactive({
 })
 const uploadFile = ref(null)
 
+const baseURL = 'http://127.0.0.1:8000'
+
+const getImageUrl = (path) => {
+  if (!path) {
+    console.warn("⚠️ [前端日志] 图片路径为空");
+    return '';
+  }
+  if (path.startsWith('http')) return path
+  
+  // 拼接逻辑：后端地址 + 数据库里的相对路径
+  // 例如：http://127.0.0.1:8000 + /static/avatars/xxx.jpg
+  return baseURL + path
+}
+
 // 1. 获取班级列表
 const fetchClasses = async () => {
   try {
@@ -114,9 +128,21 @@ onMounted(() => {
     <el-table :data="students" style="width: 100%" border stripe>
       <el-table-column prop="student_id" label="学号" width="120" />
       
-      <el-table-column label="照片" width="100">
+    <el-table-column label="照片" width="100">
         <template #default="scope">
-          <el-avatar shape="square" :size="50" :src="'/' + scope.row.photo_path" />
+          <el-image 
+            style="width: 50px; height: 50px; border-radius: 4px"
+            :src="getImageUrl(scope.row.photo_path)"
+            :preview-src-list="[getImageUrl(scope.row.photo_path)]"
+            preview-teleported
+            fit="cover"
+          >
+            <template #error>
+              <div class="image-slot">
+                <el-icon><Picture /></el-icon>
+              </div>
+            </template>
+          </el-image>
         </template>
       </el-table-column>
       
@@ -225,5 +251,17 @@ onMounted(() => {
   color: #999;
   margin-top: 5px;
   line-height: 1.4;
+}
+
+/* 如果图片加载失败显示的占位符样式 */
+.image-slot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: #f5f7fa;
+  color: #909399;
+  font-size: 20px;
 }
 </style>

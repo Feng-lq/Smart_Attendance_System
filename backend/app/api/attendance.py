@@ -1,152 +1,190 @@
 # backend/app/api/attendance.py
-import os
-import io
 import json
 import uuid
-import base64
-import face_recognition
+import cv2
+import os
 import numpy as np
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
-
-# 导入数据库依赖和模型
 from app.models import database, sql_models
-# 导入已经迁移到 services 层的核心算法
-from app.services.face_engine import FaceEngine 
+from app import schemas
 
-# 1. 定义路由对象，必须叫 router 以便 main.py 引用
+# 引入核心服务
+from app.services.face_service import FaceService
+from app.services.file_service import FileService
+
 router = APIRouter(tags=["Attendance"])
 
-# 定义图片保存目录
-HISTORY_DIR = "static/history"
-os.makedirs(HISTORY_DIR, exist_ok=True)
-
-@router.post("/attendance/class_photo")
-async def process_class_photo(
+# ===========================
+# 1. 核心考勤识别接口
+# ===========================
+@router.post("/attendance/recognize", response_model=schemas.AttendanceSessionOut)
+async def recognize_attendance(
     class_id: int = Form(...),
     file: UploadFile = File(...),
-    db: Session = Depends(database.get_db) # 👈 使用 database.py 里的依赖
+    db: Session = Depends(database.get_db)
 ):
-    try:
-        # 1. 读取上传的大合照字节流
-        image_data = await file.read()
-        # 直接加载字节流，face_recognition 会处理为 RGB 格式
-        rgb_image = face_recognition.load_image_file(io.BytesIO(image_data))
-        
-        # 2. 在合照中检测所有人脸位置并提取特征值
-        face_locations = face_recognition.face_locations(rgb_image)
-        face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
+    # A. 验证班级
+    clazz = db.query(sql_models.Class).filter(sql_models.Class.id == class_id).first()
+    if not clazz:
+        raise HTTPException(status_code=404, detail="班级不存在")
 
-        # 3. 获取该班级在数据库中已录入的学生名单及特征
-        students_in_class = db.query(sql_models.Student).filter(sql_models.Student.class_id == class_id).all()
-        
-        known_encodings = []
-        known_student_data = [] # 用于映射识别结果
-        
-        for s in students_in_class:
-            # 性能优化：如果数据库存了 face_encoding (JSON)，直接解析，无需重读照片
-            if s.face_encoding and os.path.exists(s.photo_path):
-                encoding = np.array(json.loads(s.face_encoding))
-                known_encodings.append(encoding)
-                known_student_data.append({"id": s.id, "name": s.name, "email": s.email})
-
-        # 4. 调用服务层 FaceEngine 进行比对和 OpenCV 图像标注
-        # 返回值解构：Base64标注图, 已到学生列表, 已到学生ID集合
-        encoded_img, present_students, matched_ids = FaceEngine.process_and_annotate(
-            rgb_image, 
-            face_locations, 
-            face_encodings, 
-            known_encodings, 
-            known_student_data
-        )
-
-        # 5. 确定缺席学生名单
-        absent_students = []
-        for s in students_in_class:
-            if s.id not in matched_ids:
-                absent_students.append({"id": s.id, "name": s.name, "email": s.email})
-
-        # === 保存数据到历史记录 ===
-        session_id = str(uuid.uuid4())
-        
-        # A. 保存图片文件
-        # 保存原图
-        org_filename = f"{session_id}_org.jpg"
-        org_path = f"{HISTORY_DIR}/{org_filename}"
-        with open(org_path, "wb") as f:
-            f.write(image_data)
-            
-        # 保存结果图 (Base64 -> File)
-        res_filename = f"{session_id}_res.jpg"
-        res_path = f"{HISTORY_DIR}/{res_filename}"
-        with open(res_path, "wb") as f:
-            f.write(base64.b64decode(encoded_img))
-            
-        # B. 写入数据库 Session
-        new_session = sql_models.AttendanceSession(
-            id=session_id,
-            class_id=class_id,
-            created_at=datetime.now(),
-            original_image_path=f"/{org_path}",  # 存相对路径供前端访问
-            annotated_image_path=f"/{res_path}",
-            present_count=len(present_students),
-            absent_count=len(absent_students)
-        )
-        db.add(new_session)
-        db.commit()
-
-        # C. 写入数据库 Records
-        records = []
-        for stu in present_students:
-            records.append(sql_models.AttendanceRecord(session_id=session_id, student_id=stu['id'], status="present"))
-        for stu in absent_students:
-            records.append(sql_models.AttendanceRecord(session_id=session_id, student_id=stu['id'], status="absent"))
-        
-        db.add_all(records)
-        db.commit()
-
-        # 6. 返回最终结果给前端
-        return {
-            "session_id": str(uuid.uuid4()),
-            "present_count": len(present_students),
-            "absent_count": len(absent_students),
-            "present_students": present_students,
-            "absent_students": absent_students,
-            "total_faces_detected": len(face_locations),
-            "class_total": len(students_in_class),
-            "annotated_image_base64": encoded_img
-        }
-
-    except Exception as e:
-        # 打印详细报错到后端终端
-        import traceback
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"识别失败: {str(e)}")
+    # B. 准备已知人脸数据
+    students = db.query(sql_models.Student).filter(sql_models.Student.class_id == class_id).all()
     
-@router.get("/attendance/history")
+    known_face_encodings = []
+    known_students_data = [] 
+    
+    for student in students:
+        if student.face_encoding:
+            try:
+                encoding = json.loads(student.face_encoding)
+                known_face_encodings.append(encoding)
+                known_students_data.append({
+                    "id": student.id,
+                    "name": student.name
+                })
+            except Exception:
+                continue 
+
+    if not known_face_encodings:
+        raise HTTPException(status_code=400, detail="该班级没有录入人脸数据")
+
+    # C. 保存原始上传图片
+    try:
+        original_path = await FileService.save_upload_file(file, sub_dir="history")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"保存图片失败: {str(e)}")
+
+    # 重置文件指针
+    await file.seek(0)
+
+    # D. 调用 FaceService 进行识别
+    try:
+        image_np = await FaceService.load_image_from_file(file)
+        
+        result_img_np, found_ids = FaceService.process_recognition(
+            image_np, 
+            known_face_encodings, 
+            known_students_data 
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"识别算法出错: {str(e)}")
+
+    # E. 保存结果图片
+    filename = os.path.basename(original_path)
+    result_filename = f"result_{filename}"
+    
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    save_dir = os.path.join(base_dir, "static", "history")
+    os.makedirs(save_dir, exist_ok=True)
+    
+    result_path_disk = os.path.join(save_dir, result_filename)
+    
+    # 写入文件 (RGB -> BGR)
+    result_img_bgr = cv2.cvtColor(result_img_np, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(result_path_disk, result_img_bgr)
+
+    # URL 路径
+    result_path_db = f"/static/history/{result_filename}"
+
+    # F. 写入数据库
+    present_count = len(set(found_ids))
+    total_count = len(students)
+    absent_count = total_count - present_count
+    
+    # 计算出勤率 (仅用于显示，不存数据库)
+    attendance_rate = round((present_count / total_count) * 100, 2) if total_count > 0 else 0.0
+    
+    # 生成 UUID (因为数据库 id 是 String 类型)
+    session_id = str(uuid.uuid4())
+    
+    new_session = sql_models.AttendanceSession(
+        id=session_id,  # 🔥 必须手动生成
+        class_id=class_id,
+        created_at=datetime.now(),
+        original_image_path=original_path, 
+        annotated_image_path=result_path_db,
+        present_count=present_count,
+        absent_count=absent_count
+        # ❌ 已删除 attendance_rate=... 因为数据库表里没有
+    )
+    db.add(new_session)
+    db.commit()
+    db.refresh(new_session)
+
+    # 写入明细记录
+    found_id_set = set(found_ids)
+    
+    present_students_list = []
+    absent_students_list = []
+
+    for student in students:
+        is_present = student.id in found_id_set
+        status = "present" if is_present else "absent"
+        
+        record = sql_models.AttendanceRecord(
+            session_id=new_session.id,
+            student_id=student.id,
+            status=status
+        )
+        db.add(record)
+
+        if is_present:
+            present_students_list.append(student)
+        else:
+            absent_students_list.append(student)
+            
+    db.commit()
+
+    # G. 构造返回值
+    return {
+        "id": str(new_session.id),
+        "class_name": clazz.name,
+        "created_at": new_session.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "present_count": present_count,
+        "absent_count": absent_count,
+        "total_count": total_count,
+        "attendance_rate": attendance_rate, # 这是算出来给前端看的
+        "original_img": original_path,
+        "result_img": result_path_db, 
+        "present_students": present_students_list, 
+        "absent_students": absent_students_list,   
+        "total_faces_detected": len(found_ids) 
+    }
+
+# ===========================
+# 2. 获取考勤历史接口
+# ===========================
+@router.get("/attendance/history", response_model=list[schemas.AttendanceSessionOut])
 def get_attendance_history(db: Session = Depends(database.get_db)):
-    # 按时间倒序查询所有历史
-    sessions = db.query(sql_models.AttendanceSession)\
-        .order_by(sql_models.AttendanceSession.created_at.desc())\
-        .all()
+    sessions = db.query(sql_models.AttendanceSession).order_by(sql_models.AttendanceSession.created_at.desc()).all()
     
     result = []
-    for s in sessions:
-        # 🚀 重点修改：直接使用数据库字段，无需 len(s.records)，性能提升 10倍
-        p_count = s.present_count
-        a_count = s.absent_count
-        total = p_count + a_count
+    for sess in sessions:
+        clazz = db.query(sql_models.Class).filter(sql_models.Class.id == sess.class_id).first()
+        
+        total = sess.present_count + sess.absent_count
+        # 现场计算出勤率
+        rate = round((sess.present_count / total) * 100, 2) if total > 0 else 0.0
         
         result.append({
-            "id": s.id, # 前端用的 key 是 id 还是 session_id 请确认，建议统一用 id
-            "class_name": s.clazz.name if s.clazz else "已删除班级",
-            "created_at": s.created_at.strftime("%Y-%m-%d %H:%M"),
-            "present_count": p_count,
-            "absent_count": a_count, # 前端需要这个字段
+            "id": str(sess.id),
+            "class_name": clazz.name if clazz else "Unknown",
+            "created_at": sess.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "present_count": sess.present_count,
+            "absent_count": sess.absent_count,
             "total_count": total,
-            "attendance_rate": round((p_count / total * 100), 1) if total > 0 else 0,
-            "original_img": s.original_image_path,
-            "result_img": s.annotated_image_path
+            "attendance_rate": rate,
+            
+            "original_img": sess.original_image_path, 
+            "result_img": sess.annotated_image_path,
+            
+            "present_students": [],
+            "absent_students": [],
+            "total_faces_detected": 0
         })
     return result

@@ -1,32 +1,61 @@
+# backend/app/api/auth.py
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from app.models import sql_models, database  # 导入数据库模型和 get_db
-from app.core import security               # 导入你的 Token 处理逻辑
+from app.models import database 
 
-# 1. 创建路由对象
+# ✅ 修改点 1: 精确导入，防止报错找不到 Token
+from app.schemas import Token, LoginRequest 
+from app.services.auth_service import AuthService
+
+# 创建路由对象
 router = APIRouter(tags=["Authentication"])
 
-# 2. 迁移登录逻辑
-@router.post("/token")
-async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), 
-    db: Session = Depends(database.get_db)  # 👈 注意：这里改为引用 database.py 里的 get_db
+@router.post("/auth/token", response_model=Token) # 👈 直接用 Token
+async def login_for_access_token(
+    login_data: LoginRequest, # 👈 直接用 LoginRequest
+    db: Session = Depends(database.get_db)
 ):
-    # 查询用户
-    user = db.query(sql_models.User).filter(sql_models.User.username == form_data.username).first()
+    # 1. 调用 Service 验证身份
+    user_or_student = AuthService.authenticate_user(
+        db, 
+        login_data.username, 
+        login_data.password, 
+        login_data.role
+    )
     
-    # 验证用户是否存在以及密码是否匹配
-    if not user or not security.verify_password(form_data.password, user.hashed_password):
+    if not user_or_student:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="用户名或密码错误"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名、密码错误或角色不匹配",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # 生成 JWT Access Token
-    access_token = security.create_access_token(data={"sub": user.username})
+    # 2. 准备 Token 数据
+    identifier = ""
+    uid = 0
     
+    if login_data.role == "admin":
+        identifier = user_or_student.username
+        uid = user_or_student.id
+    else:
+        identifier = user_or_student.student_id
+        uid = user_or_student.id
+
+    # 3. 生成 Token
+    # ✅ 修改点 2: 确认方法名！
+    # 如果你的 AuthService 里写的是 create_token，这里必须一致。
+    # 我们之前写的 Service 代理方法叫 create_token，所以这里改为 create_token。
+    access_token = AuthService.create_token(
+        data={
+            "sub": str(identifier), 
+            "role": login_data.role,
+            "uid": str(uid)
+        }
+    )
+    
+    # 4. 返回结果
     return {
         "access_token": access_token, 
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "role": login_data.role 
     }

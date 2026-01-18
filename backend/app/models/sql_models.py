@@ -33,6 +33,8 @@ class Student(Base):
     student_id = Column(String, unique=True, index=True) # 学号
     name = Column(String)
     email = Column(String, nullable=True) # 用于发送缺勤提醒邮件
+    # 学生登录密码 (加密存储)
+    hashed_password = Column(String, nullable=True)
     
     # 外键：关联到 classes 表的 id
     class_id = Column(Integer, ForeignKey("classes.id"))

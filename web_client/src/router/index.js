@@ -6,6 +6,7 @@ import ClassView from '../views/ClassView.vue'
 import ClassAttendance from '../views/AttendanceView.vue'
 import HistoryView from '../views/HistoryView.vue'
 import AnalyticsView from '../views/AnalyticsView.vue'
+import StudentPortal from '../views/StudentPortal.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -14,6 +15,13 @@ const router = createRouter({
       path: '/',
       name: 'login',
       component: LoginView
+    },
+    // 🔥 2. 新增学生端独立路由 (放在 Dashboard 外面)
+    {
+      path: '/student',
+      name: 'student-portal',
+      component: StudentPortal,
+      meta: { title: '学生考勤查询' }
     },
     {
       path: '/dashboard',

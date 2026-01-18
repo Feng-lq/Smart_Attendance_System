@@ -4,55 +4,55 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-# 1. 导入数据库配置与 ORM 模型
+# 1. 导入数据库与模型
 from app.models import database, sql_models
-# 2. 导入各个功能模块的路由
+# 2. 导入路由
 from app.api import auth, classes, students, attendance, analytics
-# 🟢 在应用启动时，自动在 PostgreSQL 中创建所有尚未存在的表
-# 这是毕设演示时最稳妥的做法，确保数据库结构与代码同步
+
+# 自动创建表结构
 sql_models.Base.metadata.create_all(bind=database.engine)
 
-# 初始化 FastAPI 实例
 app = FastAPI(
     title="Smart Class Attendance System",
     description="基于 FastAPI + PostgreSQL + Face_Recognition 的智能考勤系统后端",
     version="1.0.0"
 )
 
-# 3. 静态资源目录初始化与挂载
-# 确保项目根目录下存在 static/uploads (学生证件照) 和 static/group_photos (考勤合照)
-os.makedirs("static/uploads", exist_ok=True)
-os.makedirs("static/group_photos", exist_ok=True)
+# ==========================================
+# 3. 静态资源配置 (🔥 核心修改点)
+# ==========================================
 
-# 挂载静态文件夹，前端可以通过 http://127.0.0.1:8000/static/... 直接访问图片
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# 获取 main.py 所在的绝对目录 (E:\Study\FYP\Smart_Attendance_System\backend)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 拼接 static 文件夹的绝对路径
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-# 4. 跨域资源共享 (CORS) 配置
-# 允许 Vue 前端（通常在 5173 端口）跨域访问后端接口
+# 确保文件夹存在 (跟 FileService 保持一致，建立 avatars 和 history)
+os.makedirs(os.path.join(STATIC_DIR, "avatars"), exist_ok=True)
+os.makedirs(os.path.join(STATIC_DIR, "history"), exist_ok=True)
+
+# 挂载静态目录
+# 访问 http://127.0.0.1:8000/static/avatars/xxx.jpg -> 映射到硬盘 backend/static/avatars/xxx.jpg
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# ==========================================
+
+# 4. CORS 跨域配置
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境建议指定具体域名如 ["http://localhost:5173"]
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 5. 注册模块化路由
-# 统一增加 /api 前缀，这符合你 web_client 里的 api 调用路径规范
-app.include_router(auth.router, prefix="/api")       # 包含 /token 接口
-app.include_router(classes.router, prefix="/api")    # 包含 /classes 接口
-app.include_router(students.router, prefix="/api")   # 包含 /students 接口
-app.include_router(attendance.router, prefix="/api") # 包含 /attendance/class_photo 接口
+# 5. 注册路由
+app.include_router(auth.router, prefix="/api")
+app.include_router(classes.router, prefix="/api")
+app.include_router(students.router, prefix="/api")
+app.include_router(attendance.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 
-# 根路径测试接口
 @app.get("/")
 def root():
-    return {
-        "status": "online",
-        "message": "Smart Attendance System API is running",
-        "database": "PostgreSQL Connected"
-    }
-
-# 运行提示：
-# 在 backend 目录下执行命令：uvicorn main:app --reload
+    return {"message": "System is running", "docs": "/docs"}
