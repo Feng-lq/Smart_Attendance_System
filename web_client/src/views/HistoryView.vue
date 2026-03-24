@@ -1,18 +1,31 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getHistory } from '@/api/attendance'
+import { getAllClasses } from '@/api/students'
 import { Timer, Picture, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const tableData = ref([])
+const classes = ref([])
+const selectedClassId = ref('')
 const loading = ref(false)
 const dialogVisible = ref(false)
 const currentImages = ref({ org: '', res: '' })
 
+const fetchClasses = async () => {
+  try {
+    const res = await getAllClasses()
+    classes.value = Array.isArray(res) ? res : (res.data || [])
+  } catch (error) {
+    console.error('获取班级失败', error)
+  }
+}
+
 const loadData = async () => {
   loading.value = true
   try {
-    const res = await getHistory()
+    const params = selectedClassId.value ? { class_id: selectedClassId.value } : {}
+    const res = await getHistory(params)
     // 兼容拦截器逻辑：有的拦截器直接返回 res，有的返回 res.data
     tableData.value = Array.isArray(res) ? res : (res.data || [])
 
@@ -27,6 +40,11 @@ const loadData = async () => {
   }
 }
 
+// 下拉框改变时触发刷新
+const handleFilterChange = () => {
+  loadData()
+}
+
 // 打开弹窗查看照片
 const showDetail = (row) => {
   currentImages.value = {
@@ -36,13 +54,33 @@ const showDetail = (row) => {
   dialogVisible.value = true
 }
 
-onMounted(loadData)
+onMounted(() => {
+  // 🚀 先获取班级列表，再获取历史数据
+  fetchClasses().then(() => {
+    loadData()
+  })
+})
 </script>
 
 <template>
   <div class="history-page">
     <div class="header">
       <h2><el-icon><Timer /></el-icon> 考勤历史档案</h2>
+      <el-select 
+          v-model="selectedClassId" 
+          placeholder="全部班级" 
+          clearable 
+          @change="handleFilterChange"
+          class="filter-select"
+        >
+          <el-option label="全部班级" value="" />
+          <el-option 
+            v-for="item in classes" 
+            :key="item.id" 
+            :label="item.name" 
+            :value="item.id" 
+          />
+        </el-select>
       <el-button type="primary" plain :icon="Refresh" @click="loadData">刷新列表</el-button>
     </div>
 
@@ -136,6 +174,23 @@ onMounted(loadData)
 .history-page { padding: 20px; max-width: 1200px; margin: 0 auto; }
 .header { display: flex; justify-content: space-between; margin-bottom: 20px; align-items: center; }
 .header h2 { display: flex; align-items: center; gap: 10px; color: #303133; margin: 0; }
+
+/* 🚀 新增样式：左侧标题和下拉框排列 */
+.left-actions {
+  display: flex;
+  align-items: center;
+}
+.left-actions h2 { 
+  display: flex; 
+  align-items: center; 
+  gap: 10px; 
+  color: #303133; 
+  margin: 0; 
+  margin-right: 20px; /* 标题和下拉框的间距 */
+}
+.filter-select {
+  width: 200px;
+}
 
 .compare-container { display: flex; gap: 20px; height: 60vh; }
 .img-box { flex: 1; display: flex; flex-direction: column; height: 100%; border: 1px solid #e4e7ed; border-radius: 8px; padding: 15px; background: #fff; box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05); }

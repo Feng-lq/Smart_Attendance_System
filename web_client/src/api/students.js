@@ -2,8 +2,8 @@
 import request from './index' // 导入你配置了 baseURL: '/api' 的 axios 实例
 
 // 获取所有学生
-export function getStudents() {
-  return request.get('/students')
+export function getStudents(params) {
+  return request.get('/students', { params })
 }
 
 // 获取所有班级 (用于下拉菜单)

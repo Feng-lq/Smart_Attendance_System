@@ -17,8 +17,8 @@ export function analyzeClassPhoto(formData) {
 
 // 3. 获取历史记录
 // (保留原名 getHistory，防止其他页面报错)
-export function getHistory() {
-  return request.get('/attendance/history')
+export function getHistory(params) {
+  return request.get('/attendance/history', { params })
 }
 
 // 4. 发送通知 (新增，如果你后续要用手动通知功能)

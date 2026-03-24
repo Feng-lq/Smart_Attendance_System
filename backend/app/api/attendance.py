@@ -5,6 +5,7 @@ import cv2
 import os
 import numpy as np
 from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.models import database, sql_models
@@ -160,8 +161,19 @@ async def recognize_attendance(
 # 2. 获取考勤历史接口
 # ===========================
 @router.get("/attendance/history", response_model=list[schemas.AttendanceSessionOut])
-def get_attendance_history(db: Session = Depends(database.get_db)):
-    sessions = db.query(sql_models.AttendanceSession).order_by(sql_models.AttendanceSession.created_at.desc()).all()
+def get_attendance_history(
+    class_id: Optional[int] = None,  # 🔥 1. 新增：接收前端传来的班级ID，默认值为 None
+    db: Session = Depends(database.get_db)
+):
+    # 🔥 2. 构建基础查询对象
+    query = db.query(sql_models.AttendanceSession)
+    
+    # 🔥 3. 如果前端传了 class_id，就加上条件过滤
+    if class_id is not None:
+        query = query.filter(sql_models.AttendanceSession.class_id == class_id)
+        
+    # 🔥 4. 执行查询，按时间倒序排列
+    sessions = query.order_by(sql_models.AttendanceSession.created_at.desc()).all()
     
     result = []
     for sess in sessions:

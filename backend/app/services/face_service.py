@@ -22,71 +22,80 @@ class FaceService:
         return img_rgb
 
     @staticmethod
-    def get_face_encoding_from_bytes(image_bytes: bytes) -> str | None:
-        """从字节流提取特征 (用于录入学生)"""
-        try:
-            nparr = np.frombuffer(image_bytes, np.uint8)
-            img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            encodings = face_recognition.face_encodings(img_rgb)
-            if len(encodings) > 0:
-                return json.dumps(encodings[0].tolist())
+    def get_encoding_for_registration(image_np: np.ndarray):
+        """
+        用于学生录入：从 RGB Numpy 数组中提取单张人脸的 128 维特征向量。
+        :param image_np: 已经转为 RGB 格式的图像数组
+        :return: 128维的 numpy 数组，如果未检测到则返回 None
+        """
+        # 提取特征
+        encodings = face_recognition.face_encodings(image_np)
+        
+        # 容错处理
+        if len(encodings) == 0:
             return None
-        except Exception as e:
-            print(f"特征提取出错: {e}")
-            return None
+        if len(encodings) > 1:
+            raise ValueError("照片中检测到多张人脸，注册证件照只能包含学生本人。")
+            
+        # 返回原生的 numpy 数组，完美适配路由层的 encoding.tolist()
+        return encodings[0]
 
     @staticmethod
-    def process_recognition(image_np, known_face_encodings, known_students_data, tolerance=0.6):
+    def process_recognition(image_np, known_face_encodings, known_students_data, tolerance=0.55):
         """
         核心识别逻辑
         :param image_np: 待识别图片的 numpy 数组 (RGB)
         :param known_face_encodings: 已知人脸特征值列表
         :param known_students_data: 已知学生信息列表 [{'id': 1, 'name': 'xxx'}, ...]
+        :param tolerance: 匹配阈值 (此处设定为0.55，比0.6略微严格，减少合照误认率)
         :return: (result_image_np, found_student_ids)
         """
         # 1. 查找人脸位置
-        face_locations = face_recognition.face_locations(image_np)
+        # 🔥 优化1：增加 upsample=2 图像放大参数，大幅提升暗光和后排小人脸的检测成功率
+        face_locations = face_recognition.face_locations(image_np, number_of_times_to_upsample=2)
+        
         # 2. 提取特征值
         face_encodings = face_recognition.face_encodings(image_np, face_locations)
 
         found_student_ids = []
 
-        # 使用 PIL 进行绘图 (支持中文更好，或者单纯为了画框方便)
+        # 使用 PIL 进行绘图
         pil_image = Image.fromarray(image_np)
         draw = ImageDraw.Draw(pil_image)
 
-        print(f"--- 识别开始: 检测到 {len(face_locations)} 张人脸 ---")
+        print(f"--- 识别开始: 共检测到 {len(face_locations)} 张人脸 ---")
 
         # 遍历每一张检测到的脸
         for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-            matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=tolerance)
             name = "Unknown"
+            match_found = False
             
-            # 计算人脸距离 (越小越相似)
-            face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+            # 🔥 优化2：安全防护，确保数据库中有录入的数据，防止 numpy 抛出 argmin 异常
+            if len(known_face_encodings) > 0:
+                # 计算待测人脸与数据库所有人的欧氏距离
+                face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+                
+                # 找到距离最近（最相似）的人
+                best_match_index = np.argmin(face_distances)
+                
+                # 判断最相似的人，其距离是否在允许的误差阈值内
+                if face_distances[best_match_index] <= tolerance:
+                    match_found = True
+                    student_info = known_students_data[best_match_index]
+                    name = student_info["name"] 
+                    found_student_ids.append(student_info["id"]) 
+                    
+                    print(f"✅ 识别成功: {name}")
+                    
+                    # 画绿框 (已知)
+                    draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=3)
+                    
+                    # 画名字标签
+                    draw.rectangle(((left, bottom - 20), (right, bottom)), fill=(0, 255, 0), outline=(0, 255, 0))
+                    draw.text((left + 6, bottom - 18), name, fill=(255, 255, 255, 255))
             
-            # 找到最相似的那个
-            best_match_index = np.argmin(face_distances)
-            
-            if matches[best_match_index]:
-                # 🔥 修正：现在获取的是字典，可以安全使用 ["name"] 和 ["id"]
-                student_info = known_students_data[best_match_index]
-                name = student_info["name"] 
-                found_student_ids.append(student_info["id"]) 
-                
-                print(f"✅ 识别成功: {name}")
-                
-                # 画绿框 (已知)
-                draw.rectangle(((left, top), (right, bottom)), outline=(0, 255, 0), width=3)
-                
-                # 画名字标签
-                # 如果没有中文字体，暂时用简单的矩形和英文/拼音
-                text_len = len(name) * 10
-                draw.rectangle(((left, bottom - 20), (right, bottom)), fill=(0, 255, 0), outline=(0, 255, 0))
-                draw.text((left + 6, bottom - 18), name, fill=(255, 255, 255, 255))
-            else:
-                # 画红框 (未知)
+            # 🔥 优化3：如果数据库为空，或者没匹配上任何人，统一画红框 (未知)
+            if not match_found:
                 draw.rectangle(((left, top), (right, bottom)), outline=(255, 0, 0), width=3)
 
         # 转回 numpy 数组 (RGB)

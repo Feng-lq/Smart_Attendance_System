@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, UploadFilled } from '@element-plus/icons-vue'
+import { Plus, Delete, UploadFilled,Picture } from '@element-plus/icons-vue'
 // 导入封装好的接口 👈
 import { getStudents, getAllClasses, createStudent, deleteStudent } from '@/api/students'
 
@@ -10,6 +10,8 @@ const classes = ref([])
 const dialogVisible = ref(false)
 const isLoading = ref(false)
 const previewUrl = ref('') 
+
+const selectedClassId = ref('')
 
 const form = reactive({
   name: '',
@@ -22,15 +24,14 @@ const uploadFile = ref(null)
 const baseURL = 'http://127.0.0.1:8000'
 
 const getImageUrl = (path) => {
-  if (!path) {
-    console.warn("⚠️ [前端日志] 图片路径为空");
-    return '';
-  }
+  if (!path) return ''; // 消除无用警告
   if (path.startsWith('http')) return path
-  
-  // 拼接逻辑：后端地址 + 数据库里的相对路径
-  // 例如：http://127.0.0.1:8000 + /static/avatars/xxx.jpg
   return baseURL + path
+}
+
+const getClassName = (classId) => {
+  const targetClass = classes.value.find(c => c.id === classId)
+  return targetClass ? targetClass.name : '未知班级'
 }
 
 // 1. 获取班级列表
@@ -43,14 +44,22 @@ const fetchClasses = async () => {
   }
 }
 
-// 2. 获取学生列表
+// 2. 获取学生列表 (🚀 修改：支持传入 class_id 进行筛选)
 const fetchStudents = async () => {
   try {
-    const response = await getStudents() // 使用封装接口
+    const params = selectedClassId.value ? { class_id: selectedClassId.value } : {}
+    const response = await getStudents(params) 
     students.value = response
   } catch (error) {
+    // 💡 增加真实报错的打印
+    console.error('获取学生列表报错明细:', error.response?.data || error)
     ElMessage.error('获取列表失败')
   }
+}
+
+// 🚀 新增：下拉框改变时触发的事件
+const handleFilterChange = () => {
+  fetchStudents()
 }
 
 const handleFileChange = (file) => {
@@ -84,6 +93,8 @@ const handleSubmit = async () => {
     Object.assign(form, { name: '', student_id: '', email: '', class_id: '' })
     uploadFile.value = null
     previewUrl.value = '' 
+
+    // 如果当前处于某个班级的筛选视角下，录入完顺便刷新
     fetchStudents() 
   } catch (error) {
     const detail = error.response?.data?.detail
@@ -111,8 +122,10 @@ const handleDelete = (id) => {
 }
 
 onMounted(() => {
-  fetchClasses()
-  fetchStudents()
+  fetchClasses().then(() => {
+    // 保证先获取到班级列表后，再获取学生（这样表格里的班级名称才能正确匹配）
+    fetchStudents()
+  })
 })
 </script>
 
@@ -120,6 +133,23 @@ onMounted(() => {
   <div class="student-container">
     <div class="header-actions">
       <h2>学生信息管理</h2>
+
+      <el-select 
+          v-model="selectedClassId" 
+          placeholder="全部班级" 
+          clearable 
+          @change="handleFilterChange"
+          class="filter-select"
+        >
+          <el-option label="全部班级" value="" />
+          <el-option 
+            v-for="item in classes" 
+            :key="item.id" 
+            :label="item.name" 
+            :value="item.id" 
+          />
+        </el-select>
+        
       <el-button type="primary" :icon="Plus" @click="dialogVisible = true">
         录入学生
       </el-button>
@@ -214,7 +244,20 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
-/* 🚀 样式修改点：美化拖拽框和预览图 */
+/* 🚀 新增样式：左侧标题和下拉框居中对齐 */
+.left-actions {
+  display: flex;
+  align-items: center;
+}
+.left-actions h2 {
+  margin: 0;
+  margin-right: 20px; /* 标题和下拉框的间距 */
+}
+.filter-select {
+  width: 200px;
+}
+
+/* 拖拽上传样式 */
 .face-uploader {
   width: 100%;
 }

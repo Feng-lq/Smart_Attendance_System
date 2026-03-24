@@ -98,23 +98,6 @@ onMounted(() => {
     <div class="search-box">
       <h1 class="title">🎓 学生考勤查询门户</h1>
       <p class="subtitle">输入学号，一键查看你的出勤记录</p>
-      
-      <div class="input-wrapper">
-        <el-input 
-          v-model="searchId" 
-          placeholder="请输入你的学号 (例如: 2201001)" 
-          class="custom-input"
-          size="large"
-          @keyup.enter="handleSearch"
-        >
-          <template #prefix>
-            <el-icon><Search /></el-icon>
-          </template>
-        </el-input>
-        <el-button type="primary" size="large" @click="handleSearch" :loading="isLoading" class="search-btn">
-          查询
-        </el-button>
-      </div>
     </div>
 
     <div v-if="studentData" class="result-dashboard">
