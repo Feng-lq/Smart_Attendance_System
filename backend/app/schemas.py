@@ -1,16 +1,19 @@
 # backend/app/schemas.py
-from pydantic import BaseModel, EmailStr
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import List
 from datetime import datetime
 
 # =======================
-# 1. 认证相关 (Authentication)
+# 1. Authentication Related
+# 1. 认证相关
 # =======================
 
 class Token(BaseModel):
     access_token: str
     token_type: str
-    role: str  # 返回角色信息 (admin/student)
+    # Return role info (admin/student)
+    # 返回角色信息 (admin/student)
+    role: str  
 
 class TokenData(BaseModel):
     username: str | None = None
@@ -18,18 +21,22 @@ class TokenData(BaseModel):
 
 class LoginRequest(BaseModel):
     """
-    用于接收前端的 JSON 登录请求
+    Used to receive JSON login requests from the frontend.
+    用于接收前端的 JSON 登录请求。
     """
-    username: str
-    password: str
-    role: str = "admin"  # 默认为管理员登录，也可以是 "student"
+    username: str = Field(..., description="Login username or student ID", examples=["admin", "2024001"])
+    password: str = Field(..., description="Login password", examples=["123456"])
+    # Default is admin login, can also be "student"
+    # 默认为管理员登录，也可以是 "student"
+    role: str = Field(default="admin", description="Role identity", examples=["admin", "student"])  
 
 # =======================
-# 2. 班级相关 (Class)
+# 2. Class Related
+# 2. 班级相关
 # =======================
 
 class ClassBase(BaseModel):
-    name: str
+    name: str = Field(..., description="Class name", examples=["CS101"])
 
 class ClassCreate(ClassBase):
     pass
@@ -38,52 +45,61 @@ class Class(ClassBase):
     id: int
     
     class Config:
-        from_attributes = True # 允许从 SQLAlchemy 模型读取数据
+        # Allow reading data from SQLAlchemy ORM models
+        # 允许从 SQLAlchemy 模型读取数据
+        from_attributes = True 
 
 # =======================
-# 3. 学生相关 (Student)
+# 3. Student Related
+# 3. 学生相关
 # =======================
 
 class StudentBase(BaseModel):
-    name: str
-    student_id: str
-    class_id: int
-    email: str | None = None
+    name: str = Field(..., description="Student's real name", examples=["John Doe"])
+    student_id: str = Field(..., description="Student ID", examples=["STU2024001"])
+    class_id: int = Field(..., description="Class ID", examples=[1])
+    email: str | None = Field(default=None, description="Email for absence notifications", examples=["test@qq.com"])
 
 class StudentCreate(StudentBase):
     """
-    创建学生时使用
+    Used when creating/registering a new student.
+    创建学生时使用。
     """
-    # 允许在录入时设置密码 (如果不填，后端会在逻辑里设为默认 123456)
-    password: str | None = None 
+    # Allow setting password during registration (if not provided, backend defaults to 123456)
+    # 允许在录入时设置密码 (如果不填，后端逻辑默认为 123456)
+    password: str | None = Field(default=None, description="Initial password", examples=["123456"]) 
 
 class Student(StudentBase):
     """
-    返回给前端的学生信息
+    Student info returned to the frontend.
+    返回给前端的学生信息。
     """
     id: int
-    photo_path: str | None = None # 确保这里有，否则学生头像出不来
+    photo_path: str | None = None 
     
     class Config:
         from_attributes = True
 
 # =======================
-# 4. 考勤通知相关 (Notification)
+# 4. Notification Related
+# 4. 考勤通知相关
 # =======================
 
 class NotifyRequest(BaseModel):
     """
-    用于接收前端手动发送邮件的请求
+    Used to receive frontend requests for manual email sending.
+    用于接收前端手动发送邮件的请求。
     """
-    session_id: str
+    session_id: str = Field(..., description="Attendance session UUID", examples=["a8f9c2d1-..."])
 
 # =======================
-# 5. 考勤历史相关 (History/Session)
+# 5. Attendance History/Session Related
+# 5. 考勤历史相关
 # =======================
 
 class AttendanceRecordBase(BaseModel):
     student_id: int
-    status: str
+    status: str = Field(..., description="Attendance status", examples=["present", "absent"])
     timestamp: datetime
 
 class AttendanceSessionOut(BaseModel):
@@ -95,10 +111,12 @@ class AttendanceSessionOut(BaseModel):
     total_count: int
     attendance_rate: float
     
+    # Allow null to prevent errors on older data without images
     # 允许为空，防止某些旧数据没有图片报错
     original_img: str | None = None
     result_img: str | None = None
     
+    # Core fix: Add roster list fields
     # 核心修复：添加名单列表字段 
     present_students: List[Student] = [] 
     absent_students: List[Student] = []

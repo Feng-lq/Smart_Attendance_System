@@ -44,11 +44,10 @@ def init_admin_user():
             # 创建默认管理员: admin / 123456
             hashed_pw = security.get_password_hash("123456")
             
-            # 🔥 因为你的 User 表里有 email 字段，所以这里可以放心加上
             admin = sql_models.User(
                 username="admin", 
                 hashed_password=hashed_pw,
-                email="admin@example.com" # 👈 这行现在是安全的，因为模型里有定义
+                email="admin@example.com" 
             )
             db.add(admin)
             db.commit()

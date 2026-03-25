@@ -22,7 +22,7 @@ def get_class_trend(class_id: int, db: Session = Depends(database.get_db)):
         rate = round((s.present_count / total * 100), 1) if total > 0 else 0
         
         trend_data.append({
-            "date": s.created_at.strftime("%Y-%m-%d %H:%M"), # X轴: 时间
+            "date": s.created_at.strftime("%Y-%m-%d %H:%M"),  # X轴: 时间
             "rate": rate,                                     # Y轴: 出勤率
             "total": total,
             "present": s.present_count
@@ -30,10 +30,9 @@ def get_class_trend(class_id: int, db: Session = Depends(database.get_db)):
     
     return trend_data
 
-# 2. 获取缺勤“黑名单”排行榜 (谁缺勤最多?)
+# 2. 获取缺勤排行榜
 @router.get("/analytics/absent_ranking/{class_id}")
 def get_absent_ranking(class_id: int, db: Session = Depends(database.get_db)):
-    # 这是一个复杂的聚合查询：
     # 1. 在 attendance_records 表中筛选 status='absent'
     # 2. 关联 student 表 (为了拿名字)
     # 3. 筛选特定 class_id

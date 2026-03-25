@@ -16,10 +16,9 @@ from app.services.face_service import FaceService
 from app.services.file_service import FileService
 
 router = APIRouter(tags=["Attendance"])
-
-# ===========================
+# ==========================================
 # 1. 核心考勤识别接口
-# ===========================
+# ==========================================
 @router.post("/attendance/recognize", response_model=schemas.AttendanceSessionOut)
 async def recognize_attendance(
     class_id: int = Form(...),
@@ -29,7 +28,7 @@ async def recognize_attendance(
     # A. 验证班级
     clazz = db.query(sql_models.Class).filter(sql_models.Class.id == class_id).first()
     if not clazz:
-        raise HTTPException(status_code=404, detail="班级不存在")
+        raise HTTPException(status_code=404, detail="Class not found")
 
     # B. 准备已知人脸数据
     students = db.query(sql_models.Student).filter(sql_models.Student.class_id == class_id).all()
@@ -50,13 +49,13 @@ async def recognize_attendance(
                 continue 
 
     if not known_face_encodings:
-        raise HTTPException(status_code=400, detail="该班级没有录入人脸数据")
+        raise HTTPException(status_code=400, detail="No face data registered for this class")
 
     # C. 保存原始上传图片
     try:
         original_path = await FileService.save_upload_file(file, sub_dir="history")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"保存图片失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save image:{str(e)}")
 
     # 重置文件指针
     await file.seek(0)
@@ -73,7 +72,7 @@ async def recognize_attendance(
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"识别算法出错: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Recognition algorithm error:{str(e)}")
 
     # E. 保存结果图片
     filename = os.path.basename(original_path)
@@ -104,20 +103,19 @@ async def recognize_attendance(
     session_id = str(uuid.uuid4())
     
     new_session = sql_models.AttendanceSession(
-        id=session_id,  # 🔥 必须手动生成
+        id=session_id,
         class_id=class_id,
         created_at=datetime.now(),
         original_image_path=original_path, 
         annotated_image_path=result_path_db,
         present_count=present_count,
         absent_count=absent_count
-        # ❌ 已删除 attendance_rate=... 因为数据库表里没有
     )
     db.add(new_session)
     db.commit()
     db.refresh(new_session)
 
-    # 写入明细记录
+    # G. 写入明细记录
     found_id_set = set(found_ids)
     
     present_students_list = []
@@ -149,30 +147,30 @@ async def recognize_attendance(
         "present_count": present_count,
         "absent_count": absent_count,
         "total_count": total_count,
-        "attendance_rate": attendance_rate, # 这是算出来给前端看的
+        "attendance_rate": attendance_rate, 
         "original_img": original_path,
         "result_img": result_path_db, 
         "present_students": present_students_list, 
         "absent_students": absent_students_list,   
         "total_faces_detected": len(found_ids) 
     }
-
-# ===========================
+# ==========================================
 # 2. 获取考勤历史接口
-# ===========================
+# ==========================================
 @router.get("/attendance/history", response_model=list[schemas.AttendanceSessionOut])
 def get_attendance_history(
-    class_id: Optional[int] = None,  # 🔥 1. 新增：接收前端传来的班级ID，默认值为 None
+    # 接收前端传来的班级ID，默认值为 None
+    class_id: Optional[int] = None,  
     db: Session = Depends(database.get_db)
 ):
-    # 🔥 2. 构建基础查询对象
+    # 构建基础查询对象
     query = db.query(sql_models.AttendanceSession)
     
-    # 🔥 3. 如果前端传了 class_id，就加上条件过滤
+    # 如果前端传了 class_id，就加上条件过滤
     if class_id is not None:
         query = query.filter(sql_models.AttendanceSession.class_id == class_id)
         
-    # 🔥 4. 执行查询，按时间倒序排列
+    # 执行查询，按时间倒序排列
     sessions = query.order_by(sql_models.AttendanceSession.created_at.desc()).all()
     
     result = []
