@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
 import { UploadFilled, Message, Check, Close } from '@element-plus/icons-vue'
-import { getClasses, analyzeClassPhoto } from '@/api/attendance'
+import { getClasses, analyzeClassPhoto, sendNotification } from '@/api/attendance'
 
 const classes = ref([])
 const selectedClassId = ref(null)
@@ -12,10 +12,11 @@ const isProcessing = ref(false)
 const isSending = ref(false) 
 const result = ref(null) 
 
-// 1. 定义后端基准地址
-const baseURL = 'http://127.0.0.1:8000'
+// Replaced hardcoded IP with Environment Variable fallback
+// 移除写死的 127.0.0.1，改用 Vite 环境变量，为未来部署服务器做准备
+const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
-// 2. 图片路径拼接函数
+// Image URL builder / 图片路径拼接函数
 const getImageUrl = (path) => {
   if (!path) return ''
   if (path.startsWith('http')) return path
@@ -23,30 +24,30 @@ const getImageUrl = (path) => {
   return baseURL + cleanPath
 }
 
-// 3. 获取班级列表
+// 1. Fetch class list / 获取班级列表
 const fetchClasses = async () => {
   try {
     const res = await getClasses()
-    // 🔥 防错处理：有些 axios 封装会返回 res，有些返回 res.data
-    // 如果 res 是数组，直接用；如果是对象且有 data 属性，用 res.data
+    // Error prevention: Handle different Axios wrapper returns
+    // 防错处理：有些 axios 封装会返回 res，有些返回 res.data
     classes.value = Array.isArray(res) ? res : (res.data || [])
   } catch (error) {
-    console.error(error)
-    ElMessage.error('无法获取班级列表，请检查后端是否启动')
+    console.error("❌ [Attendance] Fetch classes error:", error)
+    ElMessage.error('Failed to load class list. Is the backend running? / 无法获取班级列表，请检查后端')
   }
 }
 
-// 选择照片
+// 2. Handle file selection / 选择照片
 const handleFileChange = (file) => {
   uploadFile.value = file.raw
   previewUrl.value = URL.createObjectURL(file.raw)
   result.value = null 
 }
 
-// 4. 提交识别
+// 3. Submit for analysis / 提交识别
 const handleAnalyze = async () => {
   if (!selectedClassId.value || !uploadFile.value) {
-    ElMessage.warning('请先选择班级并上传照片')
+    ElMessage.warning('Please select a class and upload a photo / 请先选择班级并上传照片')
     return
   }
   
@@ -58,45 +59,53 @@ const handleAnalyze = async () => {
 
     const response = await analyzeClassPhoto(formData)
     
-    // 🔥 调试日志：看看后端到底返了什么
-    console.log("后端返回的识别结果:", response)
+    // Debug log / 调试日志
+    console.log("📦 [Attendance] Backend Analysis Result:", response)
     
     result.value = response
-    ElMessage.success('识别并标注完成！')
+    ElMessage.success('Recognition and annotation completed! / 识别并标注完成！')
   } catch (error) {
-    console.error(error)
-    const detail = error.response?.data?.detail || '服务器连接超时'
-    ElMessage.error('识别失败: ' + detail)
+    console.error("❌ [Attendance] Analysis error:", error)
+    const detail = error.response?.data?.detail || 'Server connection timeout / 服务器连接超时'
+    ElMessage.error('Recognition failed / 识别失败: ' + detail)
   } finally {
     isProcessing.value = false
   }
 }
 
-// 通知缺勤
+// 4. Send absent notifications / 通知缺勤
 const notifyAbsentees = () => {
   if (!result.value || result.value.absent_count === 0) return
 
-  // 🔥 字段修正：result.id
   ElMessageBox.confirm(
-    `确定要向这 ${result.value.absent_count} 名同学发送缺勤预警邮件吗？`,
-    '批量发送通知',
+    `Are you sure you want to send warning emails to these ${result.value.absent_count} students?`,
+    'Batch Notification',
     {
-      confirmButtonText: '立即发送',
-      cancelButtonText: '取消',
-      type: 'info',
+      confirmButtonText: 'Send Now',
+      cancelButtonText: 'Cancel',
+      type: 'warning',
       icon: Message
     }
   ).then(async () => {
     isSending.value = true
-    setTimeout(() => {
-      isSending.value = false
+    try {
+      // REAL backend API call
+      // 接通了真实的后端邮件发送 API！
+      await sendNotification({ session_id: result.value.id })
+      
       ElNotification({
-        title: '通知已下发',
-        // 🔥 字段修正：result.id
-        message: `考勤批次 ${result.value.id} 的提醒邮件已发送。`,
+        title: 'Notification Sent',
+        message: `Emails for session ${result.value.id} have been dispatched.`,
         type: 'success'
       })
-    }, 2000)
+    } catch (error) {
+      console.error("❌ [Attendance] Notification error:", error)
+      ElMessage.error('Failed to send emails')
+    } finally {
+      isSending.value = false
+    }
+  }).catch(() => {
+    // User canceled / 用户取消操作
   })
 }
 
@@ -108,15 +117,15 @@ onMounted(fetchClasses)
     <el-card shadow="never">
       <template #header>
         <div class="header">
-          <h2>📸 课堂合照智能识别</h2>
-          <p class="subtitle">上传班级全家福，系统将自动比对名单并记录考勤</p>
+          <h2>📸 AI Attendance Recognition</h2>
+          <p class="subtitle">Upload a class group photo. The system will auto-match and record attendance.</p>
         </div>
       </template>
 
       <div class="setup-grid">
         <div class="step-section">
-          <span class="label">选择班级：</span>
-          <el-select v-model="selectedClassId" placeholder="选择上课班级" size="large" style="width: 240px">
+          <span class="label"> Select Class </span>
+          <el-select v-model="selectedClassId" placeholder="Select a class" size="large" style="width: 240px">
             <el-option
               v-for="cls in classes"
               :key="cls.id"
@@ -151,12 +160,12 @@ onMounted(fetchClasses)
         
         <div v-else class="placeholder">
         <el-icon class="icon"><upload-filled /></el-icon>
-        <div class="text">将课堂合照拖到此处，或 <em>点击上传</em></div>
+        <div class="text">Drag class photo here, or <em>click to upload</em></div>
         </div>
     </el-upload>
     
     <div v-if="result && result.result_img" class="img-tips">
-        绿色框：识别成功 | 红色框：未匹配到名单
+        Green Box: Recognized | Red Box: Unmatched 
     </div>
     </div>
 
@@ -168,12 +177,12 @@ onMounted(fetchClasses)
         @click="handleAnalyze"
         :disabled="!selectedClassId || !uploadFile"
       >
-        {{ isProcessing ? '深度检测中...' : '开始批量识别考勤' }}
+        {{ isProcessing ? 'Deep Scanning...' : 'Start Recognition' }}
       </el-button>
 
       <div v-if="result" class="result-section">
         <div class="session-info">
-          <el-tag type="info" effect="plain">考勤批次: {{ result.id }}</el-tag>
+          <el-tag type="info" effect="plain">Session ID{{ result.id }}</el-tag>
         </div>
 
         <el-row :gutter="20">
@@ -181,7 +190,7 @@ onMounted(fetchClasses)
             <el-card class="result-card present" shadow="never">
               <template #header>
                 <div class="card-head success">
-                  <el-icon><Check /></el-icon> 已出席 ({{ result.present_count }})
+                  <el-icon><Check /></el-icon> Present ({{ result.present_count }})
                 </div>
               </template>
               <div class="name-container">
@@ -202,7 +211,7 @@ onMounted(fetchClasses)
             <el-card class="result-card absent" shadow="never">
               <template #header>
                 <div class="card-head between">
-                  <span class="error"><el-icon><Close /></el-icon> 缺席名单 ({{ result.absent_count }})</span>
+                  <span class="error"><el-icon><Close /></el-icon> Absent ({{ result.absent_count }})</span>
                   <el-button 
                     v-if="result.absent_count > 0"
                     type="danger" 
@@ -210,14 +219,14 @@ onMounted(fetchClasses)
                     :loading="isSending"
                     @click="notifyAbsentees"
                   >
-                    发送提醒
+                    Send Warning 
                   </el-button>
                 </div>
               </template>
               
-              <el-table :data="result.absent_students" size="small" style="width: 100%" empty-text="全员到齐！">
-                <el-table-column prop="name" label="姓名" width="100" />
-                <el-table-column prop="email" label="邮箱" />
+              <el-table :data="result.absent_students" size="small" style="width: 100%" empty-text="Everyone is present!">
+                <el-table-column prop="name" label="Name" width="100" />
+                <el-table-column prop="email" label="Email" />
               </el-table>
             </el-card>
           </el-col>
@@ -225,7 +234,7 @@ onMounted(fetchClasses)
         
         <div class="stats-footer">
           <el-divider />
-          <span>算法统计：本次合照识别到 {{ result.total_faces_detected }} 张面孔，该班级应到 {{ result.total_count }} 人。</span>
+          <span>Analytics: Detected {{ result.total_faces_detected }} faces. Total expected: {{ result.total_count }} students. </span>
         </div>
       </div>
     </el-card>
@@ -233,7 +242,6 @@ onMounted(fetchClasses)
 </template>
 
 <style scoped>
-/* 保持原样 */
 .container { max-width: 900px; margin: 20px auto; }
 .header h2 { margin: 0; color: #303133; }
 .subtitle { color: #909399; font-size: 14px; margin: 5px 0 0 0; }

@@ -1,16 +1,16 @@
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, UploadFilled,Picture } from '@element-plus/icons-vue'
-// 导入封装好的接口 👈
+import { Plus, Delete, UploadFilled, Picture } from '@element-plus/icons-vue'
+// Import encapsulated APIs / 导入封装好的接口 👈
 import { getStudents, getAllClasses, createStudent, deleteStudent } from '@/api/students'
 
+// State management / 状态管理
 const students = ref([])
 const classes = ref([]) 
 const dialogVisible = ref(false)
 const isLoading = ref(false)
 const previewUrl = ref('') 
-
 const selectedClassId = ref('')
 
 const form = reactive({
@@ -21,56 +21,60 @@ const form = reactive({
 })
 const uploadFile = ref(null)
 
-const baseURL = 'http://127.0.0.1:8000'
+// 🚀 [Optimized] Replaced hardcoded IP with Environment Variable
+// 🚀 [优化提升] 引入环境变量 baseURL，为云端部署做准备
+const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
+// Image path resolver / 图片路径拼接函数
 const getImageUrl = (path) => {
-  if (!path) return ''; // 消除无用警告
+  if (!path) return ''; // Eliminate useless warnings / 消除无用警告
   if (path.startsWith('http')) return path
-  return baseURL + path
+  return baseURL + (path.startsWith('/') ? path : '/' + path)
 }
 
+// Map class_id to class name / 将 class_id 映射为班级名称
 const getClassName = (classId) => {
   const targetClass = classes.value.find(c => c.id === classId)
-  return targetClass ? targetClass.name : '未知班级'
+  return targetClass ? targetClass.name : 'Unknown'
 }
 
-// 1. 获取班级列表
+// 1. Fetch class list / 获取班级列表
 const fetchClasses = async () => {
   try {
-    const response = await getAllClasses() // 使用封装接口
-    classes.value = response
+    const response = await getAllClasses()
+    classes.value = Array.isArray(response) ? response : (response.data || [])
   } catch (error) {
-    console.error('获取班级失败', error)
+    console.error('❌ [StudentView] Fetch classes error:', error)
   }
 }
 
-// 2. 获取学生列表 (🚀 修改：支持传入 class_id 进行筛选)
+// 2. Fetch student list / 获取学生列表 (🚀 支持传入 class_id 进行筛选)
 const fetchStudents = async () => {
   try {
     const params = selectedClassId.value ? { class_id: selectedClassId.value } : {}
     const response = await getStudents(params) 
-    students.value = response
+    students.value = Array.isArray(response) ? response : (response.data || [])
   } catch (error) {
-    // 💡 增加真实报错的打印
-    console.error('获取学生列表报错明细:', error.response?.data || error)
-    ElMessage.error('获取列表失败')
+    console.error('❌ [StudentView] Fetch students error details:', error.response?.data || error)
+    ElMessage.error('Failed to load student list')
   }
 }
 
-// 🚀 新增：下拉框改变时触发的事件
+// Triggered when dropdown filter changes / 下拉框改变时触发刷新
 const handleFilterChange = () => {
   fetchStudents()
 }
 
+// Handle local file selection and preview / 处理本地文件选择与预览
 const handleFileChange = (file) => {
   uploadFile.value = file.raw 
   previewUrl.value = URL.createObjectURL(file.raw)
 }
 
-// 3. 提交新学生
+// 3. Submit new student / 提交新学生
 const handleSubmit = async () => {
   if (!form.name || !form.student_id || !form.email || !form.class_id || !uploadFile.value) {
-    ElMessage.warning('请填写完整信息并上传照片')
+    ElMessage.warning('Please fill in all fields and upload a photo')
     return
   }
 
@@ -83,47 +87,53 @@ const handleSubmit = async () => {
     formData.append('class_id', form.class_id)
     formData.append('file', uploadFile.value)
 
-    // 使用封装接口 👈
     await createStudent(formData)
 
-    ElMessage.success('录入成功！')
+    ElMessage.success('Registration successful!')
     dialogVisible.value = false
     
-    // 重置逻辑保持不变
+    // Reset form / 重置表单逻辑
     Object.assign(form, { name: '', student_id: '', email: '', class_id: '' })
     uploadFile.value = null
     previewUrl.value = '' 
 
-    // 如果当前处于某个班级的筛选视角下，录入完顺便刷新
+    // Refresh current view / 录入完顺便刷新当前视角
     fetchStudents() 
   } catch (error) {
+    console.error("❌ [StudentView] Create error:", error)
     const detail = error.response?.data?.detail
-    ElMessage.error(detail || '添加失败，请重试')
+    ElMessage.error(detail || 'Failed to add student')
   } finally {
     isLoading.value = false
   }
 }
 
-// 4. 删除学生
+// 4. Delete student / 删除学生
 const handleDelete = (id) => {
-  ElMessageBox.confirm('确定要删除该学生吗?', '警告', {
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-    type: 'warning',
-  }).then(async () => {
+  ElMessageBox.confirm(
+    'Are you sure you want to delete this student?', 
+    'Warning / 警告', 
+    {
+      confirmButtonText: 'Delete / 删除',
+      cancelButtonText: 'Cancel / 取消',
+      type: 'warning',
+    }
+  ).then(async () => {
     try {
-      await deleteStudent(id) // 使用封装接口
-      ElMessage.success('删除成功')
+      await deleteStudent(id)
+      ElMessage.success('Deleted successfully')
       fetchStudents()
     } catch (error) {
-      ElMessage.error('删除失败')
+      console.error("❌ [StudentView] Delete error:", error)
+      ElMessage.error('Failed to delete')
     }
-  })
+  }).catch(() => {})
 }
 
 onMounted(() => {
+  // Chain promises: Ensure classes are loaded BEFORE students for proper name mapping
+  // 保证先获取到班级列表后，再获取学生（这样表格里的班级名称才能正确匹配）
   fetchClasses().then(() => {
-    // 保证先获取到班级列表后，再获取学生（这样表格里的班级名称才能正确匹配）
     fetchStudents()
   })
 })
@@ -132,16 +142,16 @@ onMounted(() => {
 <template>
   <div class="student-container">
     <div class="header-actions">
-      <h2>学生信息管理</h2>
-
-      <el-select 
+      <div class="left-actions">
+        <h2>Student Management</h2>
+        <el-select 
           v-model="selectedClassId" 
-          placeholder="全部班级" 
+          placeholder="All Classes" 
           clearable 
           @change="handleFilterChange"
           class="filter-select"
         >
-          <el-option label="全部班级" value="" />
+          <el-option label="All Classes" value="" />
           <el-option 
             v-for="item in classes" 
             :key="item.id" 
@@ -149,16 +159,17 @@ onMounted(() => {
             :value="item.id" 
           />
         </el-select>
+      </div>
         
       <el-button type="primary" :icon="Plus" @click="dialogVisible = true">
-        录入学生
+        Add Student 
       </el-button>
     </div>
 
-    <el-table :data="students" style="width: 100%" border stripe>
-      <el-table-column prop="student_id" label="学号" width="120" />
+    <el-table :data="students" style="width: 100%" border stripe empty-text="No Data">
+      <el-table-column prop="student_id" label="Student ID" width="140" align="center" />
       
-    <el-table-column label="照片" width="100">
+      <el-table-column label="Photo" width="100" align="center">
         <template #default="scope">
           <el-image 
             style="width: 50px; height: 50px; border-radius: 4px"
@@ -176,37 +187,44 @@ onMounted(() => {
         </template>
       </el-table-column>
       
-      <el-table-column prop="name" label="姓名" width="120" />
-      <el-table-column prop="email" label="邮箱" />
+      <el-table-column prop="name" label="Name" width="120" />
       
-      <el-table-column label="操作" width="100">
+      <el-table-column label="Class" width="150" align="center">
+        <template #default="scope">
+          <el-tag type="info" effect="plain">{{ getClassName(scope.row.class_id) }}</el-tag>
+        </template>
+      </el-table-column>
+
+      <el-table-column prop="email" label="Email" min-width="180" />
+      
+      <el-table-column label="Action" width="100" align="center" fixed="right">
         <template #default="scope">
           <el-button type="danger" :icon="Delete" circle @click="handleDelete(scope.row.id)" />
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" title="采集学生人脸信息" width="500px">
-      <el-form :model="form" label-width="80px">
-        <el-form-item label="所属班级">
-          <el-select v-model="form.class_id" placeholder="请选择班级" style="width: 100%">
+    <el-dialog v-model="dialogVisible" title="Capture Face Info" width="500px" destroy-on-close>
+      <el-form :model="form" label-width="100px" label-position="left">
+        <el-form-item label="Class">
+          <el-select v-model="form.class_id" placeholder="Select Class" style="width: 100%">
             <el-option v-for="item in classes" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
 
-        <el-form-item label="姓名">
-          <el-input v-model="form.name" />
+        <el-form-item label="Name">
+          <el-input v-model="form.name" placeholder="Real name" />
         </el-form-item>
 
-        <el-form-item label="学号">
-          <el-input v-model="form.student_id" />
+        <el-form-item label="ID">
+          <el-input v-model="form.student_id" placeholder="Student ID" />
         </el-form-item>
 
-        <el-form-item label="电子邮箱">
-          <el-input v-model="form.email" />
+        <el-form-item label="Email">
+          <el-input v-model="form.email" placeholder="For notifications" />
         </el-form-item>
 
-        <el-form-item label="人脸照片">
+        <el-form-item label="Face">
           <el-upload
             class="face-uploader"
             drag
@@ -219,17 +237,17 @@ onMounted(() => {
             <img v-if="previewUrl" :src="previewUrl" class="preview-img" />
             <div v-else class="upload-placeholder">
               <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-              <div class="el-upload__text">将照片拖到此处，或 <em>点击上传</em></div>
+              <div class="el-upload__text">Drag photo here or <em>click to upload</em></div>
             </div>
           </el-upload>
-          <div class="tips">上传单人正脸照，背景尽量纯净。</div>
+          <div class="tips">* Single clear face shot, clean background</div>
         </el-form-item>
       </el-form>
       
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="handleSubmit" :loading="isLoading">确定录入</el-button>
+          <el-button @click="dialogVisible = false">Cancel</el-button>
+          <el-button type="primary" @click="handleSubmit" :loading="isLoading">Register</el-button>
         </span>
       </template>
     </el-dialog>
@@ -244,20 +262,19 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
-/* 🚀 新增样式：左侧标题和下拉框居中对齐 */
 .left-actions {
   display: flex;
   align-items: center;
 }
 .left-actions h2 {
   margin: 0;
-  margin-right: 20px; /* 标题和下拉框的间距 */
+  margin-right: 20px;
+  color: #303133;
 }
 .filter-select {
   width: 200px;
 }
 
-/* 拖拽上传样式 */
 .face-uploader {
   width: 100%;
 }
@@ -296,7 +313,6 @@ onMounted(() => {
   line-height: 1.4;
 }
 
-/* 如果图片加载失败显示的占位符样式 */
 .image-slot {
   display: flex;
   justify-content: center;

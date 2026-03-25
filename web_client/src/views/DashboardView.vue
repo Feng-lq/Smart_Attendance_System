@@ -1,13 +1,19 @@
 <script setup>
 import { useRouter, useRoute } from 'vue-router'
 import { School, User, Timer, SwitchButton, Camera, TrendCharts } from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/userStore'
+import { storeToRefs } from 'pinia'
 
 const router = useRouter()
-const route = useRoute() // 用于获取当前路由路径，保持菜单高亮
+const route = useRoute() // Used to keep menu highlighted / 用于获取当前路由路径，保持菜单高亮
 
+const userStore = useUserStore()
+// Extract reactive variables from store / 从 store 中提取响应式变量
+const { name, role } = storeToRefs(userStore)
+
+// Handle logout action / 处理退出登录
 const handleLogout = () => {
-  localStorage.removeItem('token')
-  router.push('/')
+  userStore.logoutAction()
 }
 </script>
 
@@ -16,7 +22,7 @@ const handleLogout = () => {
     <el-container class="layout-container">
       <el-aside width="220px" class="aside-menu">
         <div class="logo">
-          🎓 智慧考勤
+          🎓 Smart Attendance
         </div>
         
         <el-menu
@@ -29,40 +35,40 @@ const handleLogout = () => {
         >
           <el-menu-item index="/dashboard/class">
             <el-icon><School /></el-icon>
-            <span>班级管理</span>
+            <span>Class</span>
           </el-menu-item>
 
           <el-menu-item index="/dashboard/student">
             <el-icon><User /></el-icon>
-            <span>学生管理</span>
+            <span>Student</span>
           </el-menu-item>
           
           <el-menu-item index="/dashboard/attendance">
             <el-icon><Camera /></el-icon>
-            <span>考勤识别</span>
+            <span>Face Recognition</span>
           </el-menu-item>
 
           <el-menu-item index="/dashboard/history">
             <el-icon><Timer /></el-icon>
-            <span>考勤历史</span>
+            <span>History</span>
           </el-menu-item>
 
           <el-menu-item index="/dashboard/analytics">
             <el-icon><TrendCharts /></el-icon>
-            <span>数据分析</span>
+            <span>Analytics</span>
           </el-menu-item>
 
-          <el-menu-item index="" @click="handleLogout">
+          <el-menu-item index="logout" @click="handleLogout">
             <el-icon><SwitchButton /></el-icon>
-            <span>退出登录</span>
+            <span>Logout</span>
           </el-menu-item>
         </el-menu>
       </el-aside>
 
       <el-container>
         <el-header class="header">
-          <span>管理员控制台</span>
-          <span class="admin-name">Admin</span>
+          <span>Administrator Console</span>
+          <span class="admin-name">{{ name || 'Administrator' }}</span>
         </el-header>
         
         <el-main class="main-content">
@@ -87,7 +93,7 @@ const handleLogout = () => {
   height: 60px;
   line-height: 60px;
   text-align: center;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: bold;
   background-color: #2b3648;
   color: white;
@@ -103,17 +109,27 @@ const handleLogout = () => {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid #dcdfe6;
-  font-size: 18px;
+  font-size: 16px;
   padding: 0 20px;
+  box-shadow: 0 1px 4px rgba(0,21,41,0.08); /* Added subtle shadow for depth / 增加了微弱的阴影提升质感 */
 }
 
 .admin-name {
   font-weight: bold;
   color: #409EFF;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-name::before {
+  content: "👋"; /* A little friendly greeting / 加个友好的小表情 */
 }
 
 .main-content {
   background-color: #f0f2f5;
   padding: 20px;
+  /* Support smooth scrolling / 支持平滑滚动 */
+  overflow-y: auto; 
 }
 </style>

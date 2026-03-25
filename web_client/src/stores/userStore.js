@@ -5,36 +5,42 @@ import { login } from '@/api/auth'
 import router from '@/router' 
 
 export const useUserStore = defineStore('user', () => {
+  // Initialize state from local storage to persist session across page reloads
+  // 从本地存储初始化状态，保证刷新页面后登录状态不丢失
   const token = ref(localStorage.getItem('token') || '')
   const role = ref(localStorage.getItem('role') || '') 
   const name = ref(localStorage.getItem('name') || '')
 
   const loginAction = async (loginForm) => {
     try {
+      // 1. Send login request
       // 1. 发送请求
       const res = await login(loginForm)
       
+      // 🔍 Debugging: Check the complete response in the browser console (F12)
       // 🔍 调试：请在浏览器控制台(F12)查看这个输出
-      console.log("🔥 后端返回的完整响应:", res)
+      console.log("[UserStore] Full backend response:", res)
 
-      // 2. 智能获取数据 (兼容是否有拦截器的情况)
-      // 如果 res 直接包含 access_token，说明拦截器已经解包了
-      // 如果 res.data 包含 access_token，说明是原生 Axios 响应
+      // 2. Smart data extraction (Compatible with/without Axios response interceptors)
+      // 2. 智能获取数据 (兼容是否有拦截器解包的情况)
+      // If `res` directly contains access_token, the interceptor unpacked it. Otherwise, check `res.data`.
       const data = res.access_token ? res : (res.data || {})
 
       if (!data.access_token) {
-        console.error("❌ 无法解析 Token，数据结构不对:", data)
+        console.error("[UserStore] Failed to parse Token, invalid data structure:", data)
         return false
       }
 
+      // 3. Extract fields
       // 3. 提取字段
       const accessToken = data.access_token
       const userRole = data.role
-      // 如果后端没返回 role，我们先做个防错，默认为 admin (或者根据逻辑处理)
+      
       if (!userRole) {
-         console.warn("⚠️ 后端未返回 role 字段，请检查 auth.py 返回值")
+         console.warn("[UserStore] Backend did not return a 'role' field. Please check auth.py")
       }
 
+      // 4. Update state and LocalStorage
       // 4. 保存状态
       token.value = accessToken
       role.value = userRole || 'admin' 
@@ -44,13 +50,16 @@ export const useUserStore = defineStore('user', () => {
       localStorage.setItem('role', userRole || 'admin')
       localStorage.setItem('name', loginForm.username)
 
-      console.log("✅ 登录成功，准备跳转...")
+      console.log("[UserStore] Login successful, redirecting...")
 
-      // 🔥 5. 核心修改：根据角色跳转不同页面
+      // 5. Role-Based Routing
+      // 5. 基于角色的路由分流
       if (role.value === 'admin') {
+        // Teachers/Admins redirect to the Class Management dashboard
         // 教师跳转到仪表盘的班级管理页 (更常用)
         router.push('/dashboard/class')
       } else {
+        // Students redirect to the portal and pass the student ID automatically!
         // 学生跳转到门户页，并携带学号参数，实现自动查询！
         router.push({ 
           path: '/student', 
@@ -60,19 +69,27 @@ export const useUserStore = defineStore('user', () => {
       
       return true
     } catch (error) {
-      console.error("❌ 登录过程发生异常:", error)
+      console.error("[UserStore] Exception occurred during login:", error)
       return false
     }
   }
 
   const logoutAction = () => {
+    // Clear state in memory
+    // 清除内存中的状态
     token.value = ''
     role.value = ''
     name.value = ''
+    
+    // Clear persistent storage
+    // 清除持久化存储
     localStorage.removeItem('token')
     localStorage.removeItem('role')
     localStorage.removeItem('name')
-    router.push('/login')
+    
+    // Redirect to login page
+    // 踢回登录页
+    router.push('/')
   }
 
   return { 

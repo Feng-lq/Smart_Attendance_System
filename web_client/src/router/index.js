@@ -1,12 +1,9 @@
+// web_client/src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router'
+
+// Eager load ONLY the login view for fastest initial render
+// 仅对登录页进行同步加载，保证首屏瞬间渲染完毕
 import LoginView from '../views/LoginView.vue'
-import DashboardView from '../views/DashboardView.vue'
-import StudentView from '../views/StudentView.vue' 
-import ClassView from '../views/ClassView.vue'
-import ClassAttendance from '../views/AttendanceView.vue'
-import HistoryView from '../views/HistoryView.vue'
-import AnalyticsView from '../views/AnalyticsView.vue'
-import StudentPortal from '../views/StudentPortal.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -14,49 +11,71 @@ const router = createRouter({
     {
       path: '/',
       name: 'login',
-      component: LoginView
+      component: LoginView,
+      meta: { title: 'Login' }
     },
-    // 🔥 2. 新增学生端独立路由 (放在 Dashboard 外面)
     {
       path: '/student',
       name: 'student-portal',
-      component: StudentPortal,
-      meta: { title: '学生考勤查询' }
+      component: () => import('../views/StudentPortal.vue'),
+      meta: { title: 'Student Portal / 学生考勤查询', requiresAuth: true } 
     },
     {
       path: '/dashboard',
       name: 'dashboard',
-      component: DashboardView,
-      // 配置子路由
+      component: () => import('../views/DashboardView.vue'),
+      // Protect the entire dashboard area / 保护整个后台区域
+      meta: { requiresAuth: true }, 
+      // Configure child routes / 配置子路由
       children: [
         {
-          path: 'class', // 访问路径: /dashboard/class
+          path: 'class', 
           name: 'class',
-          component: ClassView
+          component: () => import('../views/ClassView.vue')
         },
         {
-          path: 'student', // 访问路径是 /dashboard/student
+          path: 'student', 
           name: 'student',
-          component: StudentView
+          component: () => import('../views/StudentView.vue')
         },
         {
           path: 'attendance', 
           name: 'attendance',
-          component: ClassAttendance
+          component: () => import('../views/AttendanceView.vue')
         },
         {
-          path: 'history', // 👈 2. 新增路由配置 (访问地址: /dashboard/history)
+          path: 'history', 
           name: 'history',
-          component: HistoryView
+          component: () => import('../views/HistoryView.vue')
         },
         {
           path: 'analytics',
           name: 'analytics',
-          component: AnalyticsView
+          component: () => import('../views/AnalyticsView.vue')
         }
       ]
     }
   ]
+})
+
+// Global Navigation Guard for Frontend Security
+// 全局路由守卫 (Navigation Guard)：防止未登录用户“翻墙”
+router.beforeEach((to, from, next) => {
+  // Check if token exists in local storage
+  // 检查本地是否存在 Token
+  const isAuthenticated = localStorage.getItem('token')
+  
+  // If the route requires auth and the user is not logged in
+  // 如果目标路由需要权限 (requiresAuth)，且用户当前没有 Token
+  if (to.meta.requiresAuth && !isAuthenticated) {
+    // Kick back to login page
+    // 拦截请求，强制踢回登录页
+    next({ name: 'login' }) 
+  } else {
+    // Otherwise, proceed normally
+    // 否则，正常放行
+    next() 
+  }
 })
 
 export default router
