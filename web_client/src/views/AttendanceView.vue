@@ -33,7 +33,7 @@ const fetchClasses = async () => {
     classes.value = Array.isArray(res) ? res : (res.data || [])
   } catch (error) {
     console.error("❌ [Attendance] Fetch classes error:", error)
-    ElMessage.error('Failed to load class list. Is the backend running? / 无法获取班级列表，请检查后端')
+    ElMessage.error('Failed to load class list. Is the backend running?')
   }
 }
 
@@ -47,7 +47,7 @@ const handleFileChange = (file) => {
 // 3. Submit for analysis / 提交识别
 const handleAnalyze = async () => {
   if (!selectedClassId.value || !uploadFile.value) {
-    ElMessage.warning('Please select a class and upload a photo / 请先选择班级并上传照片')
+    ElMessage.warning('Please select a class and upload a photo')
     return
   }
   
@@ -63,11 +63,11 @@ const handleAnalyze = async () => {
     console.log("📦 [Attendance] Backend Analysis Result:", response)
     
     result.value = response
-    ElMessage.success('Recognition and annotation completed! / 识别并标注完成！')
+    ElMessage.success('Recognition and annotation completed!')
   } catch (error) {
     console.error("❌ [Attendance] Analysis error:", error)
-    const detail = error.response?.data?.detail || 'Server connection timeout / 服务器连接超时'
-    ElMessage.error('Recognition failed / 识别失败: ' + detail)
+    const detail = error.response?.data?.detail || 'Server connection timeout'
+    ElMessage.error('Recognition failed: ' + detail)
   } finally {
     isProcessing.value = false
   }

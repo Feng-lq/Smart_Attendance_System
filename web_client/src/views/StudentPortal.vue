@@ -106,7 +106,7 @@ const getStatusText = (status) => {
 const handleLogout = () => {
   ElMessageBox.confirm(
     'Are you sure you want to log out? ',
-    'Log out / 提示',
+    'Log out',
     {
       confirmButtonText: 'Log Out',
       cancelButtonText: 'Cancel',

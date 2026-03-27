@@ -1,0 +1,31 @@
+/* web_client/src/assets/styles/global.css */
+
+/* 1. 基础重置 (Reset) */
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+  background-color: #f0f2f5; /* 统一的系统浅灰色背景 */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 2. 全局通用工具类 (Utility Classes) */
+/* 比如很多地方都用到的弹性居中 */
+.flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 统一的卡片标题样式 */
+.global-card-title {
+  color: #303133;
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 15px;
+}
+
+/* 3. 覆盖 Element Plus 的默认主题色 (如果你需要的话) */
+:root {
+  --el-color-primary: #667eea;
+}

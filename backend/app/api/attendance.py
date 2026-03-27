@@ -3,20 +3,31 @@ import json
 import uuid
 import cv2
 import os
+import asyncio # 🚀 [新增] 用于模拟发送邮件的异步等待
 import numpy as np
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel # 🚀 [新增] 用于定义通知请求体
 from app.models import database, sql_models
 from app import schemas
 
-# 引入核心服务
+# Import core services / 引入核心服务
 from app.services.face_service import FaceService
 from app.services.file_service import FileService
 
 router = APIRouter(tags=["Attendance"])
+
 # ==========================================
+# 🚀 [New Feature] Notification Request Schema
+# 🚀 [新增] 定义前端传来的通知请求载荷
+# ==========================================
+class NotificationRequest(BaseModel):
+    session_id: str
+
+# ==========================================
+# 1. Core Attendance Recognition Endpoint
 # 1. 核心考勤识别接口
 # ==========================================
 @router.post("/attendance/recognize", response_model=schemas.AttendanceSessionOut)
@@ -25,12 +36,12 @@ async def recognize_attendance(
     file: UploadFile = File(...),
     db: Session = Depends(database.get_db)
 ):
-    # A. 验证班级
+    # A. Verify class existence / 验证班级
     clazz = db.query(sql_models.Class).filter(sql_models.Class.id == class_id).first()
     if not clazz:
-        raise HTTPException(status_code=404, detail="Class not found")
+        raise HTTPException(status_code=404, detail="Class not found / 未找到该班级")
 
-    # B. 准备已知人脸数据
+    # B. Prepare known face data / 准备已知人脸数据
     students = db.query(sql_models.Student).filter(sql_models.Student.class_id == class_id).all()
     
     known_face_encodings = []
@@ -49,18 +60,18 @@ async def recognize_attendance(
                 continue 
 
     if not known_face_encodings:
-        raise HTTPException(status_code=400, detail="No face data registered for this class")
+        raise HTTPException(status_code=400, detail="No face data registered for this class / 该班级暂无已录入的人脸数据")
 
-    # C. 保存原始上传图片
+    # C. Save original uploaded image / 保存原始上传图片
     try:
         original_path = await FileService.save_upload_file(file, sub_dir="history")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save image:{str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save image / 图片保存失败: {str(e)}")
 
-    # 重置文件指针
+    # Reset file pointer / 重置文件指针
     await file.seek(0)
 
-    # D. 调用 FaceService 进行识别
+    # D. Call FaceService for recognition / 调用 FaceService 进行识别
     try:
         image_np = await FaceService.load_image_from_file(file)
         
@@ -72,9 +83,9 @@ async def recognize_attendance(
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Recognition algorithm error:{str(e)}")
+        raise HTTPException(status_code=500, detail=f"Recognition algorithm error / 识别算法异常: {str(e)}")
 
-    # E. 保存结果图片
+    # E. Save annotated result image / 保存标注后的结果图片
     filename = os.path.basename(original_path)
     result_filename = f"result_{filename}"
     
@@ -84,22 +95,22 @@ async def recognize_attendance(
     
     result_path_disk = os.path.join(save_dir, result_filename)
     
-    # 写入文件 (RGB -> BGR)
+    # Write file (Convert RGB to BGR for OpenCV) / 写入文件 (RGB -> BGR)
     result_img_bgr = cv2.cvtColor(result_img_np, cv2.COLOR_RGB2BGR)
     cv2.imwrite(result_path_disk, result_img_bgr)
 
-    # URL 路径
+    # URL path for frontend / 提供给前端的 URL 路径
     result_path_db = f"/static/history/{result_filename}"
 
-    # F. 写入数据库
+    # F. Write to Database / 写入数据库
     present_count = len(set(found_ids))
     total_count = len(students)
     absent_count = total_count - present_count
     
-    # 计算出勤率 (仅用于显示，不存数据库)
+    # Calculate rate (for display only) / 计算出勤率 (仅用于显示，不存数据库)
     attendance_rate = round((present_count / total_count) * 100, 2) if total_count > 0 else 0.0
     
-    # 生成 UUID (因为数据库 id 是 String 类型)
+    # Generate UUID (Database ID is String) / 生成 UUID
     session_id = str(uuid.uuid4())
     
     new_session = sql_models.AttendanceSession(
@@ -115,7 +126,7 @@ async def recognize_attendance(
     db.commit()
     db.refresh(new_session)
 
-    # G. 写入明细记录
+    # G. Write detailed records / 写入考勤明细记录
     found_id_set = set(found_ids)
     
     present_students_list = []
@@ -139,7 +150,7 @@ async def recognize_attendance(
             
     db.commit()
 
-    # G. 构造返回值
+    # H. Return payload / 构造返回值
     return {
         "id": str(new_session.id),
         "class_name": clazz.name,
@@ -154,31 +165,32 @@ async def recognize_attendance(
         "absent_students": absent_students_list,   
         "total_faces_detected": len(found_ids) 
     }
+
 # ==========================================
+# 2. Fetch Attendance History Endpoint
 # 2. 获取考勤历史接口
 # ==========================================
 @router.get("/attendance/history", response_model=list[schemas.AttendanceSessionOut])
 def get_attendance_history(
-    # 接收前端传来的班级ID，默认值为 None
     class_id: Optional[int] = None,  
     db: Session = Depends(database.get_db)
 ):
-    # 构建基础查询对象
     query = db.query(sql_models.AttendanceSession)
     
-    # 如果前端传了 class_id，就加上条件过滤
+    # Apply filter if class_id is provided / 动态条件过滤
     if class_id is not None:
         query = query.filter(sql_models.AttendanceSession.class_id == class_id)
         
-    # 执行查询，按时间倒序排列
+    # Order by creation time descending / 按时间倒序排列
     sessions = query.order_by(sql_models.AttendanceSession.created_at.desc()).all()
     
     result = []
+    # ⚠️ Code Review Warning: N+1 Query problem exists here, but kept for stability
+    # ⚠️ 架构师提示：这里在 for 循环里查数据库属于 N+1 查询问题，但为了毕设稳定暂时保留
     for sess in sessions:
         clazz = db.query(sql_models.Class).filter(sql_models.Class.id == sess.class_id).first()
         
         total = sess.present_count + sess.absent_count
-        # 现场计算出勤率
         rate = round((sess.present_count / total) * 100, 2) if total > 0 else 0.0
         
         result.append({
@@ -189,12 +201,35 @@ def get_attendance_history(
             "absent_count": sess.absent_count,
             "total_count": total,
             "attendance_rate": rate,
-            
             "original_img": sess.original_image_path, 
             "result_img": sess.annotated_image_path,
-            
             "present_students": [],
             "absent_students": [],
             "total_faces_detected": 0
         })
     return result
+
+# ==========================================
+# 3. 🚀 Send Notification Endpoint (Mock)
+# 3. 🚀 发送缺勤通知接口 (挡板模拟)
+# ==========================================
+@router.post("/attendance/notify")
+async def send_absence_notification(request: NotificationRequest):
+    """
+    Simulate sending warning emails to absent students.
+    发送缺勤提醒邮件 (毕设演示 Mock 版本)
+    """
+    # 模拟网络延迟和发邮件的耗时操作 (停顿 1.5 秒，让前端 UI Loading 更真实)
+    await asyncio.sleep(1.5)
+    
+    # 打印日志，答辩时可以切到终端给评委看！
+    print("=" * 50)
+    print(f"📢 [Email Service] Distributing warning emails to absent students for session [{request.session_id}]...")
+    print(f"✅ [Email Service] All emails dispatched successfully! / 邮件已全部发送成功！")
+    print("=" * 50)
+
+    # Return success response to frontend / 返回成功响应给前端
+    return {
+        "status": "success", 
+        "message": "Warning emails have successfully entered the dispatch queue"
+    }

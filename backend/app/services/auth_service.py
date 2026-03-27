@@ -2,6 +2,8 @@
 from sqlalchemy.orm import Session
 from app.models import sql_models
 from app.core import security 
+from jose import jwt, JWTError
+from app.core.config import settings
 
 class AuthService:
     
@@ -54,7 +56,9 @@ class AuthService:
             
         return None
 
-    # === Proxy Methods / 代理方法 ===
+    # ==========================================
+    # === Proxy Methods / 代理机制与鉴权工具 ===
+    # ==========================================
     
     @staticmethod
     def create_token(data: dict):
@@ -64,10 +68,28 @@ class AuthService:
         """
         return security.create_access_token(data)
 
+    # Renamed to match the call in auth.py
+    # 重命名为 get_password_hash，与路由层的调用强绑定
     @staticmethod
-    def hash_password(password: str):
+    def get_password_hash(password: str):
         """
         Proxy call to security module to encrypt password
         透传调用 security 加密密码
         """
         return security.get_password_hash(password)
+
+    # Added decode_token to support Zero-Trust password update
+    # 新增 decode_token，支撑零信任架构下的密码修改逻辑
+    @staticmethod
+    def decode_token(token: str) -> dict | None:
+        """
+        Decode and verify JWT Token.
+        解析并校验 JWT Token。
+        """
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            return payload
+        except JWTError:
+            # Token is expired or invalid
+            # 凭证过期或被篡改，静默返回 None
+            return None
